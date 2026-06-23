@@ -1,0 +1,10 @@
+{
+  "kind": "local",
+  "id": "local:/Users/goberlec/dev/aro-hcp.experiment",
+  "label": "experiment-branch",
+  "status": "",
+  "spec": {
+    "worktree_id": "%2FUsers%2Fgoberlec%2Fdev%2Faro-hcp.experiment%2F",
+    "branch": "experiment-branch"
+  }
+}

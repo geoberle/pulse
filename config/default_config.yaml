@@ -1,0 +1,14 @@
+jira:
+  host: https://issues.redhat.com
+  email: ""
+  token: ""
+repos:
+  - Azure/ARO-HCP
+  - Azure/ARO-Tools
+jira_project: ARO
+stale_threshold_days: 5
+poll_interval: 5m
+llm:
+  provider: vertex
+  project: ""
+  region: us-east5

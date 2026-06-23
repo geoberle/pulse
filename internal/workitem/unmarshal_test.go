@@ -1,0 +1,167 @@
+package workitem
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestUnmarshalSpecRecursive_JiraWorkItem(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "jira_workitem.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var item WorkItem
+	if err := json.Unmarshal(data, &item); err != nil {
+		t.Fatal(err)
+	}
+	if err := item.UnmarshalSpecRecursive(); err != nil {
+		t.Fatal(err)
+	}
+
+	jiraSpec, ok := item.ParsedSpec.(*JiraSpec)
+	if !ok {
+		t.Fatalf("expected *JiraSpec, got %T", item.ParsedSpec)
+	}
+	if jiraSpec.Key != "ARO-12345" {
+		t.Errorf("expected key ARO-12345, got %s", jiraSpec.Key)
+	}
+	if !jiraSpec.Stale {
+		t.Error("expected stale to be true")
+	}
+
+	if len(item.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(item.Children))
+	}
+	pr := item.Children[0]
+	prSpec, ok := pr.ParsedSpec.(*PRSpec)
+	if !ok {
+		t.Fatalf("expected *PRSpec, got %T", pr.ParsedSpec)
+	}
+	if prSpec.Number != 891 {
+		t.Errorf("expected PR number 891, got %d", prSpec.Number)
+	}
+	if prSpec.Repo != "Azure/ARO-HCP" {
+		t.Errorf("expected repo Azure/ARO-HCP, got %s", prSpec.Repo)
+	}
+
+	if len(pr.Children) != 2 {
+		t.Fatalf("expected 2 PR children, got %d", len(pr.Children))
+	}
+
+	check := pr.Children[0]
+	checkSpec, ok := check.ParsedSpec.(*CheckSpec)
+	if !ok {
+		t.Fatalf("expected *CheckSpec, got %T", check.ParsedSpec)
+	}
+	if checkSpec.Name != "e2e-test-suite" {
+		t.Errorf("expected check name e2e-test-suite, got %s", checkSpec.Name)
+	}
+
+	review := pr.Children[1]
+	reviewSpec, ok := review.ParsedSpec.(*ReviewSpec)
+	if !ok {
+		t.Fatalf("expected *ReviewSpec, got %T", review.ParsedSpec)
+	}
+	if reviewSpec.File != "constants.go" {
+		t.Errorf("expected file constants.go, got %s", reviewSpec.File)
+	}
+}
+
+func TestUnmarshalSpec_OrphanPR(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "orphan_pr.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var item WorkItem
+	if err := json.Unmarshal(data, &item); err != nil {
+		t.Fatal(err)
+	}
+	if err := item.UnmarshalSpec(); err != nil {
+		t.Fatal(err)
+	}
+
+	prSpec, ok := item.ParsedSpec.(*PRSpec)
+	if !ok {
+		t.Fatalf("expected *PRSpec, got %T", item.ParsedSpec)
+	}
+	if prSpec.Number != 910 {
+		t.Errorf("expected PR number 910, got %d", prSpec.Number)
+	}
+	if !prSpec.NeedsRebase {
+		t.Error("expected needs_rebase to be true")
+	}
+	if len(item.Children) != 0 {
+		t.Errorf("expected 0 children, got %d", len(item.Children))
+	}
+}
+
+func TestUnmarshalSpec_LocalWork(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "local_work.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var item WorkItem
+	if err := json.Unmarshal(data, &item); err != nil {
+		t.Fatal(err)
+	}
+	if err := item.UnmarshalSpec(); err != nil {
+		t.Fatal(err)
+	}
+
+	localSpec, ok := item.ParsedSpec.(*LocalSpec)
+	if !ok {
+		t.Fatalf("expected *LocalSpec, got %T", item.ParsedSpec)
+	}
+	if localSpec.Branch != "experiment-branch" {
+		t.Errorf("expected branch experiment-branch, got %s", localSpec.Branch)
+	}
+}
+
+func TestUnmarshalSpec_UnknownKind(t *testing.T) {
+	item := &WorkItem{
+		TypeMeta: TypeMeta{Kind: "unknown"},
+		Spec:     json.RawMessage(`{}`),
+	}
+	if err := item.UnmarshalSpec(); err == nil {
+		t.Error("expected error for unknown kind")
+	}
+}
+
+func TestRoundTrip(t *testing.T) {
+	original, err := NewWorkItem(KindJira, "jira:ARO-99999", "Test issue", "New", &JiraSpec{
+		Key:   "ARO-99999",
+		Stale: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var decoded WorkItem
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoded.UnmarshalSpec(); err != nil {
+		t.Fatal(err)
+	}
+
+	spec, ok := decoded.ParsedSpec.(*JiraSpec)
+	if !ok {
+		t.Fatalf("expected *JiraSpec, got %T", decoded.ParsedSpec)
+	}
+	if spec.Key != "ARO-99999" {
+		t.Errorf("expected key ARO-99999, got %s", spec.Key)
+	}
+	if decoded.ID != "jira:ARO-99999" {
+		t.Errorf("expected id jira:ARO-99999, got %s", decoded.ID)
+	}
+}
