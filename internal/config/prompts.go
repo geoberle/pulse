@@ -35,7 +35,7 @@ func LoadPrompts(path string) (*Prompts, error) {
 }
 
 func Render(tmpl string, data any) (string, error) {
-	t, err := template.New("prompt").Parse(tmpl)
+	t, err := template.New("prompt").Option("missingkey=error").Parse(tmpl)
 	if err != nil {
 		return "", fmt.Errorf("parse template: %w", err)
 	}
