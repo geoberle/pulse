@@ -7,6 +7,6 @@
     "repo": "Azure/ARO-HCP",
     "number": 910,
     "branch": "fix-typo",
-    "needs_rebase": true
+    "branch_state": "NeedsRebase"
   }
 }

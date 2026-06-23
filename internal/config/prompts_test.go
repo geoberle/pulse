@@ -12,19 +12,19 @@ func TestLoadPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(prompts.ReviewComment.Prompt) == 0 {
+	if len(prompts.ReviewComment) == 0 {
 		t.Error("expected non-empty review_comment prompt")
 	}
-	if len(prompts.Rebase.Prompt) == 0 {
+	if len(prompts.Rebase) == 0 {
 		t.Error("expected non-empty rebase prompt")
 	}
-	if len(prompts.JiraUpdate.Prompt) == 0 {
+	if len(prompts.JiraUpdate) == 0 {
 		t.Error("expected non-empty jira_update prompt")
 	}
-	if len(prompts.JiraCreate.Prompt) == 0 {
+	if len(prompts.JiraCreate) == 0 {
 		t.Error("expected non-empty jira_create prompt")
 	}
-	if len(prompts.CIFailure.Prompt) == 0 {
+	if len(prompts.CIFailure) == 0 {
 		t.Error("expected non-empty ci_failure prompt")
 	}
 }
@@ -48,56 +48,38 @@ func TestLoadPrompts_InvalidYAML(t *testing.T) {
 	}
 }
 
-func TestRender(t *testing.T) {
-	tests := []struct {
-		name     string
-		tmpl     string
-		data     any
-		expected string
-	}{
-		{
-			name: "review comment",
-			tmpl: `Review comment on {{.File}} in PR #{{.PRNumber}}`,
-			data: map[string]any{
-				"File":     "constants.go",
-				"PRNumber": 891,
-			},
-			expected: "Review comment on constants.go in PR #891",
-		},
-		{
-			name: "rebase",
-			tmpl: `Rebase {{.Branch}} onto {{.TargetBranch}}`,
-			data: map[string]any{
-				"Branch":       "feature/ARO-12345-dns",
-				"TargetBranch": "main",
-			},
-			expected: "Rebase feature/ARO-12345-dns onto main",
-		},
+func TestValidateTemplates(t *testing.T) {
+	prompts, err := LoadPrompts(filepath.Join("..", "..", "config", "default_prompts.yaml"))
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := Render(tt.tmpl, tt.data)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, result)
-			}
-		})
+	if err := prompts.ValidateTemplates(); err != nil {
+		t.Errorf("expected default prompts to validate, got %v", err)
 	}
 }
 
-func TestRender_MissingKey(t *testing.T) {
-	_, err := Render("Hello {{.Missing}}", map[string]any{"Other": "value"})
-	if err == nil {
-		t.Error("expected error for missing template key")
+func TestValidateTemplates_EmptyPrompt(t *testing.T) {
+	p := &Prompts{
+		ReviewComment: "",
+		Rebase:        "test",
+		JiraUpdate:    "test",
+		JiraCreate:    "test",
+		CIFailure:     "test",
+	}
+	if err := p.ValidateTemplates(); err == nil {
+		t.Error("expected error for empty prompt")
 	}
 }
 
-func TestRender_InvalidTemplate(t *testing.T) {
-	_, err := Render("{{.Broken", nil)
-	if err == nil {
-		t.Error("expected error for invalid template")
+func TestValidateTemplates_InvalidSyntax(t *testing.T) {
+	p := &Prompts{
+		ReviewComment: "{{.Broken",
+		Rebase:        "test",
+		JiraUpdate:    "test",
+		JiraCreate:    "test",
+		CIFailure:     "test",
+	}
+	if err := p.ValidateTemplates(); err == nil {
+		t.Error("expected error for invalid template syntax")
 	}
 }

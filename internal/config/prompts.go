@@ -1,27 +1,39 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
-	"text/template"
 
 	"gopkg.in/yaml.v3"
+
+	tmpl "github.com/geoberle/pulse/internal/template"
 )
 
+// Prompts holds user-configurable Go template strings for each action type.
+// Templates use Go text/template syntax with action-specific variables
+// (e.g. {{.PRNumber}}, {{.CommentBody}}).
 type Prompts struct {
-	ReviewComment PromptTemplate `yaml:"review_comment"`
-	Rebase        PromptTemplate `yaml:"rebase"`
-	JiraUpdate    PromptTemplate `yaml:"jira_update"`
-	JiraCreate    PromptTemplate `yaml:"jira_create"`
-	CIFailure     PromptTemplate `yaml:"ci_failure"`
+	// ReviewComment is the template rendered when opening a Claude split
+	// for an unresolved review comment.
+	ReviewComment string `yaml:"review_comment"`
+
+	// Rebase is the template rendered when proposing a rebase action.
+	Rebase string `yaml:"rebase"`
+
+	// JiraUpdate is the template rendered when updating a Jira issue
+	// with current PR state.
+	JiraUpdate string `yaml:"jira_update"`
+
+	// JiraCreate is the template rendered when creating a new Jira issue
+	// for an orphan PR.
+	JiraCreate string `yaml:"jira_create"`
+
+	// CIFailure is the template rendered when diagnosing a failed CI check.
+	CIFailure string `yaml:"ci_failure"`
 }
 
-type PromptTemplate struct {
-	Prompt string `yaml:"prompt"`
-}
-
+// LoadPrompts reads and parses a prompts YAML file.
 func LoadPrompts(path string) (*Prompts, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -34,18 +46,33 @@ func LoadPrompts(path string) (*Prompts, error) {
 	return p, nil
 }
 
-func Render(tmpl string, data any) (string, error) {
-	t, err := template.New("prompt").Option("missingkey=error").Parse(tmpl)
-	if err != nil {
-		return "", fmt.Errorf("parse template: %w", err)
+// ValidateTemplates checks that all prompt templates are non-empty and
+// syntactically valid Go templates. Call at startup to catch errors early
+// rather than mid-session.
+func (p *Prompts) ValidateTemplates() error {
+	templates := []struct {
+		name string
+		body string
+	}{
+		{"review_comment", p.ReviewComment},
+		{"rebase", p.Rebase},
+		{"jira_update", p.JiraUpdate},
+		{"jira_create", p.JiraCreate},
+		{"ci_failure", p.CIFailure},
 	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("execute template: %w", err)
+	for _, t := range templates {
+		if len(t.body) == 0 {
+			return fmt.Errorf("prompt %q is empty", t.name)
+		}
+		if err := tmpl.ValidateSyntax(t.name, t.body); err != nil {
+			return err
+		}
 	}
-	return buf.String(), nil
+	return nil
 }
 
+// DefaultPromptsPath returns the XDG-compliant default path for the
+// prompts configuration file.
 func DefaultPromptsPath() (string, error) {
 	dir, err := defaultConfigDir()
 	if err != nil {

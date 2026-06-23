@@ -5,7 +5,7 @@
   "status": "In Progress",
   "spec": {
     "key": "ARO-12345",
-    "stale": true
+    "staleness": "Stale"
   },
   "children": [
     {
@@ -17,7 +17,7 @@
         "repo": "Azure/ARO-HCP",
         "number": 891,
         "branch": "feature/ARO-12345-dns",
-        "needs_rebase": false
+        "branch_state": "UpToDate"
       },
       "children": [
         {

@@ -82,3 +82,42 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 		t.Error("expected error for invalid YAML")
 	}
 }
+
+func TestValidateJiraHost(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		wantErr bool
+	}{
+		{
+			name:    "valid https host",
+			host:    "https://redhat.atlassian.net",
+			wantErr: false,
+		},
+		{
+			name:    "empty host",
+			host:    "",
+			wantErr: true,
+		},
+		{
+			name:    "http host",
+			host:    "http://redhat.atlassian.net",
+			wantErr: true,
+		},
+		{
+			name:    "no scheme",
+			host:    "redhat.atlassian.net",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Jira: JiraConfig{Host: tt.host}}
+			err := cfg.ValidateJiraHost()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateJiraHost() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

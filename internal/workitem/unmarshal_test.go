@@ -28,8 +28,8 @@ func TestUnmarshalSpecRecursive_JiraWorkItem(t *testing.T) {
 	if jiraSpec.Key != "ARO-12345" {
 		t.Errorf("expected key ARO-12345, got %s", jiraSpec.Key)
 	}
-	if !jiraSpec.Stale {
-		t.Error("expected stale to be true")
+	if jiraSpec.Staleness != StalenessStale {
+		t.Errorf("expected staleness %q, got %q", StalenessStale, jiraSpec.Staleness)
 	}
 
 	if len(item.Children) != 1 {
@@ -91,8 +91,8 @@ func TestUnmarshalSpec_OrphanPR(t *testing.T) {
 	if prSpec.Number != 910 {
 		t.Errorf("expected PR number 910, got %d", prSpec.Number)
 	}
-	if !prSpec.NeedsRebase {
-		t.Error("expected needs_rebase to be true")
+	if prSpec.BranchState != BranchStateNeedsRebase {
+		t.Errorf("expected branch_state %q, got %q", BranchStateNeedsRebase, prSpec.BranchState)
 	}
 	if len(item.Children) != 0 {
 		t.Errorf("expected 0 children, got %d", len(item.Children))
@@ -132,6 +132,26 @@ func TestUnmarshalSpec_UnknownKind(t *testing.T) {
 	}
 	if item.ParsedSpec != nil {
 		t.Errorf("expected nil ParsedSpec for unknown kind, got %T", item.ParsedSpec)
+	}
+}
+
+func TestUnmarshalSpec_EmptySpec(t *testing.T) {
+	item := &WorkItem{
+		TypeMeta: TypeMeta{Kind: KindJira},
+		Spec:     json.RawMessage(`{}`),
+	}
+	if err := item.UnmarshalSpec(); err != nil {
+		t.Fatalf("expected success for empty spec, got %v", err)
+	}
+	spec, ok := item.ParsedSpec.(*JiraSpec)
+	if !ok {
+		t.Fatalf("expected *JiraSpec, got %T", item.ParsedSpec)
+	}
+	if len(spec.Key) != 0 {
+		t.Errorf("expected zero-valued key, got %s", spec.Key)
+	}
+	if spec.Staleness != StalenessUnknown {
+		t.Errorf("expected zero-valued staleness, got %q", spec.Staleness)
 	}
 }
 
@@ -182,8 +202,8 @@ func TestMarshalSpec_Error(t *testing.T) {
 
 func TestRoundTrip(t *testing.T) {
 	original, err := NewWorkItem(KindJira, "jira:ARO-99999", "Test issue", "New", &JiraSpec{
-		Key:   "ARO-99999",
-		Stale: false,
+		Key:       "ARO-99999",
+		Staleness: StalenessActive,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -208,6 +228,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if spec.Key != "ARO-99999" {
 		t.Errorf("expected key ARO-99999, got %s", spec.Key)
+	}
+	if spec.Staleness != StalenessActive {
+		t.Errorf("expected staleness %q, got %q", StalenessActive, spec.Staleness)
 	}
 	if decoded.ID != "jira:ARO-99999" {
 		t.Errorf("expected id jira:ARO-99999, got %s", decoded.ID)

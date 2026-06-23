@@ -29,7 +29,7 @@ func NewCommand() (*cobra.Command, error) {
 }
 
 func run(ctx context.Context, opts *RawOptions) error {
-	validated, err := opts.Validate(ctx)
+	validated, err := opts.Validate()
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
