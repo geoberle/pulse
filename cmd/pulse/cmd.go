@@ -15,6 +15,7 @@ func NewCommand() (*cobra.Command, error) {
 	cmd := &cobra.Command{
 		Use:           "pulse",
 		Short:         "Developer workflow dashboard",
+		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {

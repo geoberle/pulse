@@ -88,6 +88,13 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func TestRender_MissingKey(t *testing.T) {
+	_, err := Render("Hello {{.Missing}}", map[string]any{"Other": "value"})
+	if err == nil {
+		t.Error("expected error for missing template key")
+	}
+}
+
 func TestRender_InvalidTemplate(t *testing.T) {
 	_, err := Render("{{.Broken", nil)
 	if err == nil {

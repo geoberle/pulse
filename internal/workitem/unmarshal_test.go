@@ -173,6 +173,13 @@ func TestUnmarshalSpec_MalformedJSON(t *testing.T) {
 	}
 }
 
+func TestMarshalSpec_Error(t *testing.T) {
+	_, err := MarshalSpec(make(chan int))
+	if err == nil {
+		t.Error("expected error for unmarshalable spec")
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	original, err := NewWorkItem(KindJira, "jira:ARO-99999", "Test issue", "New", &JiraSpec{
 		Key:   "ARO-99999",

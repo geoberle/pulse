@@ -60,6 +60,17 @@ func TestLoadConfig_MissingFile(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigPath_XDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-test")
+	path, err := DefaultConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/tmp/xdg-test/pulse/config.yaml" {
+		t.Errorf("expected /tmp/xdg-test/pulse/config.yaml, got %s", path)
+	}
+}
+
 func TestLoadConfig_InvalidYAML(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "config.yaml")
