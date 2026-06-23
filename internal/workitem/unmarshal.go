@@ -6,6 +6,7 @@ import (
 )
 
 func (w *WorkItem) UnmarshalSpec() error {
+	w.ParsedSpec = nil
 	if len(w.Spec) == 0 {
 		return nil
 	}
@@ -22,7 +23,7 @@ func (w *WorkItem) UnmarshalSpec() error {
 	case KindLocal:
 		spec = &LocalSpec{}
 	default:
-		return fmt.Errorf("unknown kind: %s", w.Kind)
+		return nil
 	}
 	if err := json.Unmarshal(w.Spec, spec); err != nil {
 		return fmt.Errorf("unmarshal spec for kind %s: %w", w.Kind, err)
@@ -35,7 +36,10 @@ func (w *WorkItem) UnmarshalSpecRecursive() error {
 	if err := w.UnmarshalSpec(); err != nil {
 		return err
 	}
-	for _, child := range w.Children {
+	for i, child := range w.Children {
+		if child == nil {
+			return fmt.Errorf("nil child at index %d", i)
+		}
 		if err := child.UnmarshalSpecRecursive(); err != nil {
 			return err
 		}

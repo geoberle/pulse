@@ -127,8 +127,36 @@ func TestUnmarshalSpec_UnknownKind(t *testing.T) {
 		TypeMeta: TypeMeta{Kind: "unknown"},
 		Spec:     json.RawMessage(`{}`),
 	}
-	if err := item.UnmarshalSpec(); err == nil {
-		t.Error("expected error for unknown kind")
+	if err := item.UnmarshalSpec(); err != nil {
+		t.Errorf("expected no error for unknown kind (forward-compatible), got %v", err)
+	}
+	if item.ParsedSpec != nil {
+		t.Errorf("expected nil ParsedSpec for unknown kind, got %T", item.ParsedSpec)
+	}
+}
+
+func TestUnmarshalSpec_ClearsStaleSpec(t *testing.T) {
+	item := &WorkItem{
+		TypeMeta:   TypeMeta{Kind: KindJira},
+		Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+		ParsedSpec: &PRSpec{Number: 999},
+	}
+	if err := item.UnmarshalSpec(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := item.ParsedSpec.(*JiraSpec); !ok {
+		t.Errorf("expected *JiraSpec after re-unmarshal, got %T", item.ParsedSpec)
+	}
+}
+
+func TestUnmarshalSpecRecursive_NilChild(t *testing.T) {
+	item := &WorkItem{
+		TypeMeta: TypeMeta{Kind: KindJira},
+		Spec:     json.RawMessage(`{"key":"ARO-1"}`),
+		Children: []*WorkItem{nil},
+	}
+	if err := item.UnmarshalSpecRecursive(); err == nil {
+		t.Error("expected error for nil child")
 	}
 }
 
