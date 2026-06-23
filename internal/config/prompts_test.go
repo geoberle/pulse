@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -25,6 +26,25 @@ func TestLoadPrompts(t *testing.T) {
 	}
 	if len(prompts.CIFailure.Prompt) == 0 {
 		t.Error("expected non-empty ci_failure prompt")
+	}
+}
+
+func TestLoadPrompts_MissingFile(t *testing.T) {
+	_, err := LoadPrompts("/nonexistent/prompts.yaml")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestLoadPrompts_InvalidYAML(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "prompts.yaml")
+	if err := os.WriteFile(path, []byte(":\ninvalid: [yaml\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadPrompts(path)
+	if err == nil {
+		t.Error("expected error for invalid YAML")
 	}
 }
 
