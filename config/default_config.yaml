@@ -1,5 +1,5 @@
 jira:
-  host: https://issues.redhat.com
+  host: https://redhat.atlassian.net
   email: ""
   token: ""
 repos:

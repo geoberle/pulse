@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/geoberle/pulse/internal/config"
 	"github.com/spf13/cobra"
+
+	"github.com/geoberle/pulse/internal/config"
 )
 
 type RawOptions struct {
