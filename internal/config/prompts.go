@@ -47,12 +47,9 @@ func Render(tmpl string, data any) (string, error) {
 }
 
 func DefaultPromptsPath() (string, error) {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); len(xdg) > 0 {
-		return filepath.Join(xdg, "pulse", "prompts.yaml"), nil
-	}
-	home, err := os.UserHomeDir()
+	dir, err := defaultConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("determine home directory: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".config", "pulse", "prompts.yaml"), nil
+	return filepath.Join(dir, "prompts.yaml"), nil
 }

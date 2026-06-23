@@ -31,9 +31,6 @@ type LLMConfig struct {
 }
 
 func (c *Config) PollDuration() (time.Duration, error) {
-	if len(c.PollInterval) == 0 {
-		return 5 * time.Minute, nil
-	}
 	return time.ParseDuration(c.PollInterval)
 }
 
@@ -53,12 +50,20 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 func DefaultConfigPath() (string, error) {
+	dir, err := defaultConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yaml"), nil
+}
+
+func defaultConfigDir() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); len(xdg) > 0 {
-		return filepath.Join(xdg, "pulse", "config.yaml"), nil
+		return filepath.Join(xdg, "pulse"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".config", "pulse", "config.yaml"), nil
+	return filepath.Join(home, ".config", "pulse"), nil
 }

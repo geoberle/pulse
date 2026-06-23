@@ -160,6 +160,19 @@ func TestUnmarshalSpecRecursive_NilChild(t *testing.T) {
 	}
 }
 
+func TestUnmarshalSpec_MalformedJSON(t *testing.T) {
+	item := &WorkItem{
+		TypeMeta: TypeMeta{Kind: KindJira},
+		Spec:     json.RawMessage(`{broken`),
+	}
+	if err := item.UnmarshalSpec(); err == nil {
+		t.Error("expected error for malformed JSON spec")
+	}
+	if item.ParsedSpec != nil {
+		t.Errorf("expected nil ParsedSpec after failed unmarshal, got %T", item.ParsedSpec)
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	original, err := NewWorkItem(KindJira, "jira:ARO-99999", "Test issue", "New", &JiraSpec{
 		Key:   "ARO-99999",
