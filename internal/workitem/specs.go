@@ -1,5 +1,7 @@
 package workitem
 
+import "fmt"
+
 // StalenessState represents whether a Jira issue has gone stale based on
 // the configured threshold. Empty string means staleness has not been
 // evaluated yet.
@@ -11,6 +13,16 @@ const (
 	StalenessStale   StalenessState = "Stale"
 )
 
+// Validate checks that the StalenessState is a known value.
+func (s StalenessState) Validate() error {
+	switch s {
+	case StalenessUnknown, StalenessActive, StalenessStale:
+		return nil
+	default:
+		return fmt.Errorf("unknown staleness state %q", s)
+	}
+}
+
 // BranchState represents the state of a PR branch relative to its target.
 // Empty string means branch state has not been checked.
 type BranchState string
@@ -21,34 +33,58 @@ const (
 	BranchStateNeedsRebase BranchState = "NeedsRebase"
 )
 
+// Validate checks that the BranchState is a known value.
+func (b BranchState) Validate() error {
+	switch b {
+	case BranchStateUnknown, BranchStateUpToDate, BranchStateNeedsRebase:
+		return nil
+	default:
+		return fmt.Errorf("unknown branch state %q", b)
+	}
+}
+
 // JiraSpec holds type-specific fields for a Jira work item (Story or Bug).
 type JiraSpec struct {
-	// Key is the Jira issue key, e.g. "ARO-12345".
+	// Key is the Jira issue key. Required. Format: "PROJECT-NUMBER".
+	// Example: "ARO-12345"
 	Key string `json:"key"`
 
-	// Staleness indicates whether the issue has been inactive beyond the
-	// configured stale_threshold_days. Empty means not yet evaluated.
+	// Staleness indicates whether the issue has been inactive beyond
+	// stale_threshold_days. Must be a valid StalenessState value.
+	// Empty (StalenessUnknown) means not yet evaluated.
 	Staleness StalenessState `json:"staleness,omitempty"`
+}
+
+// Validate checks that enum fields hold known values.
+func (s *JiraSpec) Validate() error {
+	return s.Staleness.Validate()
 }
 
 // PRSpec holds type-specific fields for a GitHub pull request.
 type PRSpec struct {
-	// Repo is the GitHub owner/repo slug, e.g. "Azure/ARO-HCP".
+	// Repo is the GitHub owner/repo slug. Required.
+	// Example: "Azure/ARO-HCP"
 	Repo string `json:"repo"`
 
-	// Number is the PR number within the repository.
+	// Number is the PR number within the repository. Required.
 	Number int `json:"number"`
 
-	// Branch is the head branch name of the PR.
+	// Branch is the head branch name of the PR. Required.
 	Branch string `json:"branch"`
 
 	// BranchState indicates the state of the PR branch relative to its
-	// target branch (e.g. up-to-date, needs rebase). Empty means not yet checked.
+	// target branch. Must be a valid BranchState value.
+	// Empty (BranchStateUnknown) means not yet checked.
 	BranchState BranchState `json:"branch_state,omitempty"`
 
 	// SplitSurfaceID is the Supacode surface ID if a Claude split session
 	// is currently open for this PR. Empty when no split is active.
 	SplitSurfaceID string `json:"split_surface_id,omitempty"`
+}
+
+// Validate checks that enum fields hold known values.
+func (s *PRSpec) Validate() error {
+	return s.BranchState.Validate()
 }
 
 // CheckSpec holds type-specific fields for a CI check run on a PR.

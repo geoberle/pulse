@@ -200,6 +200,82 @@ func TestMarshalSpec_Error(t *testing.T) {
 	}
 }
 
+func TestRoundTrip_ZeroValueEnums(t *testing.T) {
+	tests := []struct {
+		name string
+		item *WorkItem
+	}{
+		{
+			name: "jira with zero staleness",
+			item: func() *WorkItem {
+				w, _ := NewWorkItem(KindJira, "jira:ARO-1", "Test", "New", &JiraSpec{
+					Key:       "ARO-1",
+					Staleness: StalenessUnknown,
+				})
+				return w
+			}(),
+		},
+		{
+			name: "pr with zero branch state",
+			item: func() *WorkItem {
+				w, _ := NewWorkItem(KindPR, "pr:org/repo:1", "Test PR", "open", &PRSpec{
+					Repo:        "org/repo",
+					Number:      1,
+					Branch:      "main",
+					BranchState: BranchStateUnknown,
+				})
+				return w
+			}(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded WorkItem
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if err := decoded.UnmarshalSpec(); err != nil {
+				t.Fatal(err)
+			}
+			switch tt.item.Kind {
+			case KindJira:
+				spec := decoded.ParsedSpec.(*JiraSpec)
+				if spec.Staleness != StalenessUnknown {
+					t.Errorf("expected StalenessUnknown, got %q", spec.Staleness)
+				}
+			case KindPR:
+				spec := decoded.ParsedSpec.(*PRSpec)
+				if spec.BranchState != BranchStateUnknown {
+					t.Errorf("expected BranchStateUnknown, got %q", spec.BranchState)
+				}
+			}
+		})
+	}
+}
+
+func TestUnmarshalSpec_InvalidEnum(t *testing.T) {
+	item := &WorkItem{
+		TypeMeta: TypeMeta{Kind: KindJira},
+		Spec:     json.RawMessage(`{"key":"ARO-1","staleness":"garbage"}`),
+	}
+	if err := item.UnmarshalSpec(); err == nil {
+		t.Error("expected error for invalid staleness enum")
+	}
+
+	item = &WorkItem{
+		TypeMeta: TypeMeta{Kind: KindPR},
+		Spec:     json.RawMessage(`{"repo":"org/repo","number":1,"branch":"main","branch_state":"garbage"}`),
+	}
+	if err := item.UnmarshalSpec(); err == nil {
+		t.Error("expected error for invalid branch_state enum")
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	original, err := NewWorkItem(KindJira, "jira:ARO-99999", "Test issue", "New", &JiraSpec{
 		Key:       "ARO-99999",

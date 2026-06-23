@@ -30,7 +30,9 @@ Stateless request/response per connection:
 
 ```json
 {"query": "tabs", "worktreeID": "some-id"}
-→ {"ok": true, "data": [{"id": "tab-uuid", "focused": "1"}]}
+```
+```json
+{"ok": true, "data": [{"id": "tab-uuid", "focused": "1"}]}
 ```
 
 | Resource | Required Params | Response Fields |
@@ -45,7 +47,9 @@ Stateless request/response per connection:
 
 ```json
 {"deeplink": "supacode://worktree/<id>/tab/new?input=echo%20hello"}
-→ {"ok": true}
+```
+```json
+{"ok": true}
 ```
 
 **Worktree**: `worktree/<id>` (focus), `/run`, `/stop`, `/archive`, `/unarchive`, `/delete`, `/pin`, `/unpin`

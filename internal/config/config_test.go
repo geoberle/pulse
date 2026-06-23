@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,126 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 	_, err := LoadConfig(path)
 	if err == nil {
 		t.Error("expected error for invalid YAML")
+	}
+}
+
+func TestValidate(t *testing.T) {
+	validCfg := func() Config {
+		return Config{
+			Jira:               JiraConfig{Host: "https://example.atlassian.net"},
+			Repos:              []string{"org/repo"},
+			JiraProject:        "PROJ",
+			StaleThresholdDays: 5,
+			PollInterval:       "5m",
+		}
+	}
+
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{
+			name: "valid config",
+			cfg:  validCfg(),
+		},
+		{
+			name: "no repos",
+			cfg: func() Config {
+				c := validCfg()
+				c.Repos = nil
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "too many repos",
+			cfg: func() Config {
+				c := validCfg()
+				c.Repos = make([]string, 51)
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "missing jira_project",
+			cfg: func() Config {
+				c := validCfg()
+				c.JiraProject = ""
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "jira_project too long",
+			cfg: func() Config {
+				c := validCfg()
+				c.JiraProject = strings.Repeat("A", 101)
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "stale_threshold_days zero",
+			cfg: func() Config {
+				c := validCfg()
+				c.StaleThresholdDays = 0
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "stale_threshold_days negative",
+			cfg: func() Config {
+				c := validCfg()
+				c.StaleThresholdDays = -1
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "stale_threshold_days too high",
+			cfg: func() Config {
+				c := validCfg()
+				c.StaleThresholdDays = 366
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "stale_threshold_days boundary 1",
+			cfg: func() Config {
+				c := validCfg()
+				c.StaleThresholdDays = 1
+				return c
+			}(),
+		},
+		{
+			name: "stale_threshold_days boundary 365",
+			cfg: func() Config {
+				c := validCfg()
+				c.StaleThresholdDays = 365
+				return c
+			}(),
+		},
+		{
+			name: "invalid poll_interval",
+			cfg: func() Config {
+				c := validCfg()
+				c.PollInterval = "notaduration"
+				return c
+			}(),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 

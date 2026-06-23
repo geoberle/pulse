@@ -28,6 +28,11 @@ func (w *WorkItem) UnmarshalSpec() error {
 	if err := json.Unmarshal(w.Spec, spec); err != nil {
 		return fmt.Errorf("unmarshal spec for kind %s: %w", w.Kind, err)
 	}
+	if v, ok := spec.(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return fmt.Errorf("validate spec for kind %s: %w", w.Kind, err)
+		}
+	}
 	w.ParsedSpec = spec
 	return nil
 }
@@ -50,7 +55,7 @@ func (w *WorkItem) UnmarshalSpecRecursive() error {
 func MarshalSpec(spec any) (json.RawMessage, error) {
 	data, err := json.Marshal(spec)
 	if err != nil {
-		return nil, fmt.Errorf("marshal spec: %w", err)
+		return nil, fmt.Errorf("marshal spec of type %T: %w", spec, err)
 	}
 	return json.RawMessage(data), nil
 }

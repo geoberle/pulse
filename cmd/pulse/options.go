@@ -25,7 +25,8 @@ type validatedOptions struct {
 }
 
 // ValidatedOptions wraps validated configuration that has passed all
-// structural checks. Ready for completion.
+// structural checks. The unexported inner struct prevents external
+// callers from constructing one without going through Validate().
 type ValidatedOptions struct {
 	validatedOptions
 }
@@ -36,6 +37,8 @@ type completedOptions struct {
 }
 
 // Options holds fully completed configuration ready for execution.
+// The unexported inner struct prevents external callers from
+// constructing one without going through Complete().
 type Options struct {
 	completedOptions
 }
@@ -69,28 +72,18 @@ func BindOptions(opts *RawOptions, cmd *cobra.Command) error {
 func (o *RawOptions) Validate() (*ValidatedOptions, error) {
 	cfg, err := config.LoadConfig(o.ConfigFile)
 	if err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
+		return nil, fmt.Errorf("config: %w", err)
 	}
-
-	if len(cfg.Repos) == 0 {
-		return nil, fmt.Errorf("no repos configured")
-	}
-	if len(cfg.JiraProject) == 0 {
-		return nil, fmt.Errorf("jira_project is required")
-	}
-	if err := cfg.ValidateJiraHost(); err != nil {
-		return nil, err
-	}
-	if _, err := cfg.PollDuration(); err != nil {
-		return nil, fmt.Errorf("invalid poll_interval: %w", err)
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
 	}
 
 	prompts, err := config.LoadPrompts(o.PromptsFile)
 	if err != nil {
-		return nil, fmt.Errorf("prompts validation failed: %w", err)
+		return nil, fmt.Errorf("prompts: %w", err)
 	}
 	if err := prompts.ValidateTemplates(); err != nil {
-		return nil, fmt.Errorf("invalid prompt templates: %w", err)
+		return nil, fmt.Errorf("prompts: %w", err)
 	}
 
 	return &ValidatedOptions{
