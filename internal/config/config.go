@@ -7,42 +7,44 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 )
 
 // Config holds the top-level application configuration loaded from
 // config.yaml. Fields map 1:1 to YAML keys.
 type Config struct {
 	// Jira holds connection details for the Jira instance. Required.
-	Jira JiraConfig `yaml:"jira"`
+	Jira JiraConfig `json:"jira"`
 
 	// Repos is the list of GitHub owner/repo slugs to poll for PRs.
-	// Required. Maximum 50 entries.
+	// Required. Maximum 50 entries. Format: "owner/repo".
 	// Example: ["Azure/ARO-HCP", "Azure/ARO-Tools"]
-	Repos []string `yaml:"repos"`
+	Repos []string `json:"repos"`
 
 	// JiraProject is the Jira project key used to filter issues
 	// (stories and bugs assigned to or created by the user).
 	// Required. Maximum 100 characters.
 	// Example: "ARO"
-	JiraProject string `yaml:"jira_project"`
+	JiraProject string `json:"jira_project"`
 
-	// StaleThresholdDays is the number of days of inactivity after which
-	// a Jira issue is marked stale. Must be 1-365. Default: 5.
-	// Cannot be explicitly set to zero — omit to use the default.
-	StaleThresholdDays int `yaml:"stale_threshold_days"`
+	// StaleThreshold is the duration of inactivity after which a Jira
+	// issue is marked stale. Must be a valid Go duration string,
+	// between 1h and 8760h (365 days). Default: "120h" (5 days).
+	// Cannot be explicitly set to empty — omit to use the default.
+	// Example: "120h", "48h", "720h"
+	StaleThreshold string `json:"stale_threshold"`
 
 	// PollInterval is the duration between upstream poll cycles.
 	// Must be a valid Go duration string. Default: "5m".
 	// Cannot be explicitly set to empty — omit to use the default.
 	// Example: "5m", "30s", "1h"
-	PollInterval string `yaml:"poll_interval"`
+	PollInterval string `json:"poll_interval"`
 
 	// LLM holds configuration for the LLM provider used for review
 	// comment summarization. Optional — when omitted, LLM features
 	// are disabled. Validated lazily when the LLM client is constructed,
 	// not at config load time.
-	LLM LLMConfig `yaml:"llm"`
+	LLM LLMConfig `json:"llm"`
 }
 
 // JiraConfig holds connection details for a Jira Cloud instance.
@@ -50,41 +52,48 @@ type JiraConfig struct {
 	// Host is the base URL of the Jira instance. Required. Must use
 	// HTTPS. Maximum 200 characters.
 	// Example: "https://redhat.atlassian.net"
-	Host string `yaml:"host"`
+	Host string `json:"host"`
 
 	// Email is the Jira account email for API authentication.
 	// Optional in config — may be sourced from environment or keychain.
 	// Maximum 200 characters.
-	Email string `yaml:"email"`
+	Email string `json:"email"`
 
 	// Token is the Jira API token (PAT) for authentication.
 	// Optional in config — may be sourced from environment or keychain.
 	// Maximum 500 characters.
-	Token string `yaml:"token"`
+	Token string `json:"token"`
 }
 
 // LLMConfig holds configuration for the LLM provider used to generate
 // review comment summaries. Validated lazily when the LLM client is
 // constructed, not at config load time.
 type LLMConfig struct {
-	// Provider is the LLM backend identifier. Maximum 50 characters.
+	// Provider is the LLM backend identifier. Opaque string — validated
+	// by the LLM client constructor, not at config load time.
+	// Maximum 50 characters.
 	// Example: "vertex"
-	Provider string `yaml:"provider"`
+	Provider string `json:"provider"`
 
 	// Project is the cloud project ID for the LLM provider.
 	// Maximum 100 characters.
 	// Example: "my-gcp-project"
-	Project string `yaml:"project"`
+	Project string `json:"project"`
 
 	// Region is the cloud region for the LLM endpoint.
 	// Maximum 50 characters.
 	// Example: "us-east5"
-	Region string `yaml:"region"`
+	Region string `json:"region"`
 }
 
 // PollDuration parses PollInterval as a time.Duration.
 func (c *Config) PollDuration() (time.Duration, error) {
 	return time.ParseDuration(c.PollInterval)
+}
+
+// StaleDuration parses StaleThreshold as a time.Duration.
+func (c *Config) StaleDuration() (time.Duration, error) {
+	return time.ParseDuration(c.StaleThreshold)
 }
 
 // ValidateJiraHost checks that the Jira host is non-empty and uses HTTPS.
@@ -125,8 +134,12 @@ func (c *Config) Validate() error {
 	if len(c.Jira.Token) > 500 {
 		return fmt.Errorf("jira.token: max 500 chars, got %d", len(c.Jira.Token))
 	}
-	if c.StaleThresholdDays < 1 || c.StaleThresholdDays > 365 {
-		return fmt.Errorf("stale_threshold_days must be 1-365, got %d", c.StaleThresholdDays)
+	staleDur, err := c.StaleDuration()
+	if err != nil {
+		return fmt.Errorf("invalid stale_threshold: %w", err)
+	}
+	if staleDur < time.Hour || staleDur > 8760*time.Hour {
+		return fmt.Errorf("stale_threshold must be 1h-8760h, got %s", c.StaleThreshold)
 	}
 	if _, err := c.PollDuration(); err != nil {
 		return fmt.Errorf("invalid poll_interval: %w", err)
@@ -144,19 +157,19 @@ func (c *Config) Validate() error {
 }
 
 // LoadConfig reads and parses a config YAML file. Applies defaults for
-// StaleThresholdDays (5) and PollInterval ("5m") before unmarshaling.
-// These fields cannot be explicitly set to zero — omit them to get
-// the default, or set a non-zero value.
+// StaleThreshold ("120h") and PollInterval ("5m") before unmarshaling.
+// These fields cannot be explicitly set to empty — omit them to get
+// the default, or set a non-empty value.
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 	cfg := &Config{
-		StaleThresholdDays: 5,
-		PollInterval:       "5m",
+		StaleThreshold: "120h",
+		PollInterval:   "5m",
 	}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	if err := yaml.UnmarshalStrict(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	return cfg, nil

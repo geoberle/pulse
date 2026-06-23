@@ -60,7 +60,7 @@ func MarshalSpec(spec any) (json.RawMessage, error) {
 	return json.RawMessage(data), nil
 }
 
-func NewWorkItem(kind, id, label, status string, spec any) (*WorkItem, error) {
+func NewWorkItem(kind Kind, id, label, status string, spec any) (*WorkItem, error) {
 	raw, err := MarshalSpec(spec)
 	if err != nil {
 		return nil, err

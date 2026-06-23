@@ -7,6 +7,7 @@ import (
 )
 
 func TestLoadPrompts(t *testing.T) {
+	t.Parallel()
 	prompts, err := LoadPrompts(filepath.Join("..", "..", "config", "default_prompts.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -29,57 +30,95 @@ func TestLoadPrompts(t *testing.T) {
 	}
 }
 
-func TestLoadPrompts_MissingFile(t *testing.T) {
-	_, err := LoadPrompts("/nonexistent/prompts.yaml")
-	if err == nil {
-		t.Error("expected error for missing file")
+func TestLoadPrompts_Errors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "missing file",
+			content: "",
+		},
+		{
+			name:    "invalid YAML",
+			content: ":\ninvalid: [yaml\n",
+		},
+		{
+			name:    "unknown key",
+			content: "review_comment: test\nunknown_field: oops\n",
+		},
 	}
-}
 
-func TestLoadPrompts_InvalidYAML(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "prompts.yaml")
-	if err := os.WriteFile(path, []byte(":\ninvalid: [yaml\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := LoadPrompts(path)
-	if err == nil {
-		t.Error("expected error for invalid YAML")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var path string
+			if len(tt.content) == 0 {
+				path = "/nonexistent/prompts.yaml"
+			} else {
+				tmp := t.TempDir()
+				path = filepath.Join(tmp, "prompts.yaml")
+				if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := LoadPrompts(path)
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
 	}
 }
 
 func TestValidateTemplates(t *testing.T) {
-	prompts, err := LoadPrompts(filepath.Join("..", "..", "config", "default_prompts.yaml"))
-	if err != nil {
-		t.Fatal(err)
+	t.Parallel()
+	tests := []struct {
+		name    string
+		prompts Prompts
+		wantErr bool
+	}{
+		{
+			name: "valid defaults",
+			prompts: Prompts{
+				ReviewComment: "Review {{.File}}",
+				Rebase:        "Rebase {{.Branch}}",
+				JiraUpdate:    "Update {{.Key}}",
+				JiraCreate:    "Create {{.Title}}",
+				CIFailure:     "CI failed {{.Check}}",
+			},
+		},
+		{
+			name: "empty prompt",
+			prompts: Prompts{
+				ReviewComment: "",
+				Rebase:        "test",
+				JiraUpdate:    "test",
+				JiraCreate:    "test",
+				CIFailure:     "test",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid syntax",
+			prompts: Prompts{
+				ReviewComment: "{{.Broken",
+				Rebase:        "test",
+				JiraUpdate:    "test",
+				JiraCreate:    "test",
+				CIFailure:     "test",
+			},
+			wantErr: true,
+		},
 	}
-	if err := prompts.ValidateTemplates(); err != nil {
-		t.Errorf("expected default prompts to validate, got %v", err)
-	}
-}
 
-func TestValidateTemplates_EmptyPrompt(t *testing.T) {
-	p := &Prompts{
-		ReviewComment: "",
-		Rebase:        "test",
-		JiraUpdate:    "test",
-		JiraCreate:    "test",
-		CIFailure:     "test",
-	}
-	if err := p.ValidateTemplates(); err == nil {
-		t.Error("expected error for empty prompt")
-	}
-}
-
-func TestValidateTemplates_InvalidSyntax(t *testing.T) {
-	p := &Prompts{
-		ReviewComment: "{{.Broken",
-		Rebase:        "test",
-		JiraUpdate:    "test",
-		JiraCreate:    "test",
-		CIFailure:     "test",
-	}
-	if err := p.ValidateTemplates(); err == nil {
-		t.Error("expected error for invalid template syntax")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.prompts.ValidateTemplates()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTemplates() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }

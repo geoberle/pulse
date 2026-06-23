@@ -50,13 +50,16 @@ type JiraSpec struct {
 	Key string `json:"key"`
 
 	// Staleness indicates whether the issue has been inactive beyond
-	// stale_threshold_days. Must be a valid StalenessState value.
+	// stale_threshold. Must be a valid StalenessState value.
 	// Empty (StalenessUnknown) means not yet evaluated.
 	Staleness StalenessState `json:"staleness,omitempty"`
 }
 
-// Validate checks that enum fields hold known values.
+// Validate checks required fields and enum values.
 func (s *JiraSpec) Validate() error {
+	if len(s.Key) == 0 {
+		return fmt.Errorf("key is required")
+	}
 	return s.Staleness.Validate()
 }
 
@@ -82,8 +85,17 @@ type PRSpec struct {
 	SplitSurfaceID string `json:"split_surface_id,omitempty"`
 }
 
-// Validate checks that enum fields hold known values.
+// Validate checks required fields and enum values.
 func (s *PRSpec) Validate() error {
+	if len(s.Repo) == 0 {
+		return fmt.Errorf("repo is required")
+	}
+	if s.Number == 0 {
+		return fmt.Errorf("number is required")
+	}
+	if len(s.Branch) == 0 {
+		return fmt.Errorf("branch is required")
+	}
 	return s.BranchState.Validate()
 }
 
@@ -91,6 +103,14 @@ func (s *PRSpec) Validate() error {
 type CheckSpec struct {
 	// Name is the CI check name as reported by GitHub, e.g. "e2e-test-suite".
 	Name string `json:"name"`
+}
+
+// Validate checks required fields.
+func (s *CheckSpec) Validate() error {
+	if len(s.Name) == 0 {
+		return fmt.Errorf("name is required")
+	}
+	return nil
 }
 
 // ReviewSpec holds type-specific fields for a review comment on a PR.
@@ -111,6 +131,14 @@ type ReviewSpec struct {
 	SplitSurfaceID string `json:"split_surface_id,omitempty"`
 }
 
+// Validate checks required fields.
+func (s *ReviewSpec) Validate() error {
+	if len(s.File) == 0 {
+		return fmt.Errorf("file is required")
+	}
+	return nil
+}
+
 // LocalSpec holds type-specific fields for a local worktree with no PR yet.
 type LocalSpec struct {
 	// WorktreeID is an opaque identifier from Supacode — never parse or decode.
@@ -122,4 +150,15 @@ type LocalSpec struct {
 	// JiraKey is the Jira issue key extracted from the branch name via
 	// regex, if one was found. Empty when no match.
 	JiraKey string `json:"jira_key,omitempty"`
+}
+
+// Validate checks required fields.
+func (s *LocalSpec) Validate() error {
+	if len(s.WorktreeID) == 0 {
+		return fmt.Errorf("worktree_id is required")
+	}
+	if len(s.Branch) == 0 {
+		return fmt.Errorf("branch is required")
+	}
+	return nil
 }

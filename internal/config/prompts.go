@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 
 	tmpl "github.com/geoberle/pulse/internal/template"
 )
@@ -16,21 +16,21 @@ import (
 type Prompts struct {
 	// ReviewComment is the template rendered when opening a Claude split
 	// for an unresolved review comment.
-	ReviewComment string `yaml:"review_comment"`
+	ReviewComment string `json:"review_comment"`
 
 	// Rebase is the template rendered when proposing a rebase action.
-	Rebase string `yaml:"rebase"`
+	Rebase string `json:"rebase"`
 
 	// JiraUpdate is the template rendered when updating a Jira issue
 	// with current PR state.
-	JiraUpdate string `yaml:"jira_update"`
+	JiraUpdate string `json:"jira_update"`
 
 	// JiraCreate is the template rendered when creating a new Jira issue
 	// for an orphan PR.
-	JiraCreate string `yaml:"jira_create"`
+	JiraCreate string `json:"jira_create"`
 
 	// CIFailure is the template rendered when diagnosing a failed CI check.
-	CIFailure string `yaml:"ci_failure"`
+	CIFailure string `json:"ci_failure"`
 }
 
 // LoadPrompts reads and parses a prompts YAML file.
@@ -40,7 +40,7 @@ func LoadPrompts(path string) (*Prompts, error) {
 		return nil, fmt.Errorf("read prompts %s: %w", path, err)
 	}
 	p := &Prompts{}
-	if err := yaml.Unmarshal(data, p); err != nil {
+	if err := yaml.UnmarshalStrict(data, p); err != nil {
 		return nil, fmt.Errorf("parse prompts %s: %w", path, err)
 	}
 	return p, nil

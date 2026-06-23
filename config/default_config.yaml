@@ -6,7 +6,7 @@ repos:
   - Azure/ARO-HCP
   - Azure/ARO-Tools
 jira_project: ARO
-stale_threshold_days: 5
+stale_threshold: "120h"
 poll_interval: 5m
 llm:
   provider: vertex

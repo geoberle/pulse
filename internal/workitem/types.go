@@ -1,23 +1,38 @@
 package workitem
 
-import "encoding/json"
-
-// Kind constants identify the type of a WorkItem. Each kind maps to a
-// corresponding Spec struct (e.g. KindJira → JiraSpec).
-const (
-	KindJira   = "jira"
-	KindPR     = "pr"
-	KindCheck  = "check"
-	KindReview = "review"
-	KindLocal  = "local"
+import (
+	"encoding/json"
+	"fmt"
 )
+
+// Kind identifies the type of a WorkItem. Each kind maps to a
+// corresponding Spec struct (e.g. KindJira → JiraSpec).
+type Kind string
+
+const (
+	KindJira   Kind = "jira"
+	KindPR     Kind = "pr"
+	KindCheck  Kind = "check"
+	KindReview Kind = "review"
+	KindLocal  Kind = "local"
+)
+
+// Validate checks that the Kind is a known value.
+func (k Kind) Validate() error {
+	switch k {
+	case KindJira, KindPR, KindCheck, KindReview, KindLocal:
+		return nil
+	default:
+		return fmt.Errorf("unknown kind %q", k)
+	}
+}
 
 // TypeMeta identifies the kind of a WorkItem. Mirrors the Kubernetes
 // TypeMeta pattern — every serialized WorkItem carries its kind so the
 // correct Spec struct can be selected during unmarshal.
 type TypeMeta struct {
 	// Kind is one of the Kind* constants (e.g. "jira", "pr", "check").
-	Kind string `json:"kind"`
+	Kind Kind `json:"kind"`
 }
 
 // ObjectMeta holds identity and display fields common to every WorkItem,

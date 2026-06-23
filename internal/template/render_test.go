@@ -5,11 +5,13 @@ import (
 )
 
 func TestRender(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		tmpl     string
 		data     any
 		expected string
+		wantErr  bool
 	}{
 		{
 			name: "review comment",
@@ -29,43 +31,58 @@ func TestRender(t *testing.T) {
 			},
 			expected: "Rebase feature/ARO-12345-dns onto main",
 		},
+		{
+			name:    "missing key",
+			tmpl:    "Hello {{.Missing}}",
+			data:    map[string]any{"Other": "value"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid template",
+			tmpl:    "{{.Broken",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := Render(tt.tmpl, tt.data)
-			if err != nil {
-				t.Fatal(err)
+			t.Parallel()
+			result, err := Render(tt.name, tt.tmpl, tt.data)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Render() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if result != tt.expected {
+			if !tt.wantErr && result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
 			}
 		})
 	}
 }
 
-func TestRender_MissingKey(t *testing.T) {
-	_, err := Render("Hello {{.Missing}}", map[string]any{"Other": "value"})
-	if err == nil {
-		t.Error("expected error for missing template key")
-	}
-}
-
-func TestRender_InvalidTemplate(t *testing.T) {
-	_, err := Render("{{.Broken", nil)
-	if err == nil {
-		t.Error("expected error for invalid template")
-	}
-}
-
 func TestValidateSyntax(t *testing.T) {
-	if err := ValidateSyntax("good", "Hello {{.Name}}"); err != nil {
-		t.Errorf("expected no error, got %v", err)
+	t.Parallel()
+	tests := []struct {
+		name    string
+		tmpl    string
+		wantErr bool
+	}{
+		{
+			name: "valid",
+			tmpl: "Hello {{.Name}}",
+		},
+		{
+			name:    "invalid",
+			tmpl:    "{{.Broken",
+			wantErr: true,
+		},
 	}
-}
 
-func TestValidateSyntax_Invalid(t *testing.T) {
-	if err := ValidateSyntax("bad", "{{.Broken"); err == nil {
-		t.Error("expected error for invalid template syntax")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateSyntax(tt.name, tt.tmpl)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateSyntax() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }

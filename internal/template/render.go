@@ -9,14 +9,14 @@ import (
 // Render executes a Go text/template against data and returns the result.
 // Uses missingkey=error to fail on undefined template variables rather
 // than silently rendering "<no value>".
-func Render(tmpl string, data any) (string, error) {
-	t, err := template.New("prompt").Option("missingkey=error").Parse(tmpl)
+func Render(name, tmpl string, data any) (string, error) {
+	t, err := template.New(name).Option("missingkey=error").Parse(tmpl)
 	if err != nil {
-		return "", fmt.Errorf("parse template: %w", err)
+		return "", fmt.Errorf("parse template %s: %w", name, err)
 	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("execute template: %w", err)
+		return "", fmt.Errorf("execute template %s: %w", name, err)
 	}
 	return buf.String(), nil
 }

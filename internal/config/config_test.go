@@ -8,6 +8,7 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
+	t.Parallel()
 	cfg, err := LoadConfig(filepath.Join("..", "..", "config", "default_config.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -22,8 +23,8 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.JiraProject != "ARO" {
 		t.Errorf("expected jira_project ARO, got %s", cfg.JiraProject)
 	}
-	if cfg.StaleThresholdDays != 5 {
-		t.Errorf("expected stale_threshold_days 5, got %d", cfg.StaleThresholdDays)
+	if cfg.StaleThreshold != "120h" {
+		t.Errorf("expected stale_threshold 120h, got %s", cfg.StaleThreshold)
 	}
 
 	d, err := cfg.PollDuration()
@@ -36,6 +37,7 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestLoadConfig_Defaults(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "config.yaml")
 	if err := os.WriteFile(path, []byte("jira_project: TEST\n"), 0644); err != nil {
@@ -49,19 +51,54 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.JiraProject != "TEST" {
 		t.Errorf("expected jira_project TEST, got %s", cfg.JiraProject)
 	}
-	if cfg.StaleThresholdDays != 5 {
-		t.Errorf("expected default stale_threshold_days 5, got %d", cfg.StaleThresholdDays)
+	if cfg.StaleThreshold != "120h" {
+		t.Errorf("expected default stale_threshold 120h, got %s", cfg.StaleThreshold)
 	}
 }
 
-func TestLoadConfig_MissingFile(t *testing.T) {
-	_, err := LoadConfig("/nonexistent/config.yaml")
-	if err == nil {
-		t.Error("expected error for missing file")
+func TestLoadConfig_Errors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "missing file",
+			content: "",
+		},
+		{
+			name:    "invalid YAML",
+			content: ":\ninvalid: [yaml\n",
+		},
+		{
+			name:    "unknown key",
+			content: "jira_project: TEST\nunknown_field: oops\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var path string
+			if len(tt.content) == 0 {
+				path = "/nonexistent/config.yaml"
+			} else {
+				tmp := t.TempDir()
+				path = filepath.Join(tmp, "config.yaml")
+				if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := LoadConfig(path)
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
 	}
 }
 
 func TestDefaultConfigPath_XDG(t *testing.T) {
+	// t.Setenv is incompatible with t.Parallel
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-test")
 	path, err := DefaultConfigPath()
 	if err != nil {
@@ -72,26 +109,15 @@ func TestDefaultConfigPath_XDG(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_InvalidYAML(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "config.yaml")
-	if err := os.WriteFile(path, []byte(":\ninvalid: [yaml\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := LoadConfig(path)
-	if err == nil {
-		t.Error("expected error for invalid YAML")
-	}
-}
-
 func TestValidate(t *testing.T) {
+	t.Parallel()
 	validCfg := func() Config {
 		return Config{
-			Jira:               JiraConfig{Host: "https://example.atlassian.net"},
-			Repos:              []string{"org/repo"},
-			JiraProject:        "PROJ",
-			StaleThresholdDays: 5,
-			PollInterval:       "5m",
+			Jira:           JiraConfig{Host: "https://example.atlassian.net"},
+			Repos:          []string{"org/repo"},
+			JiraProject:    "PROJ",
+			StaleThreshold: "120h",
+			PollInterval:   "5m",
 		}
 	}
 
@@ -141,45 +167,54 @@ func TestValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "stale_threshold_days zero",
+			name: "stale_threshold empty",
 			cfg: func() Config {
 				c := validCfg()
-				c.StaleThresholdDays = 0
+				c.StaleThreshold = ""
 				return c
 			}(),
 			wantErr: true,
 		},
 		{
-			name: "stale_threshold_days negative",
+			name: "stale_threshold invalid",
 			cfg: func() Config {
 				c := validCfg()
-				c.StaleThresholdDays = -1
+				c.StaleThreshold = "notaduration"
 				return c
 			}(),
 			wantErr: true,
 		},
 		{
-			name: "stale_threshold_days too high",
+			name: "stale_threshold too low",
 			cfg: func() Config {
 				c := validCfg()
-				c.StaleThresholdDays = 366
+				c.StaleThreshold = "30m"
 				return c
 			}(),
 			wantErr: true,
 		},
 		{
-			name: "stale_threshold_days boundary 1",
+			name: "stale_threshold too high",
 			cfg: func() Config {
 				c := validCfg()
-				c.StaleThresholdDays = 1
+				c.StaleThreshold = "8761h"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "stale_threshold boundary 1h",
+			cfg: func() Config {
+				c := validCfg()
+				c.StaleThreshold = "1h"
 				return c
 			}(),
 		},
 		{
-			name: "stale_threshold_days boundary 365",
+			name: "stale_threshold boundary 8760h",
 			cfg: func() Config {
 				c := validCfg()
-				c.StaleThresholdDays = 365
+				c.StaleThreshold = "8760h"
 				return c
 			}(),
 		},
@@ -196,6 +231,7 @@ func TestValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
@@ -205,15 +241,15 @@ func TestValidate(t *testing.T) {
 }
 
 func TestValidateJiraHost(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		host    string
 		wantErr bool
 	}{
 		{
-			name:    "valid https host",
-			host:    "https://redhat.atlassian.net",
-			wantErr: false,
+			name: "valid https host",
+			host: "https://redhat.atlassian.net",
 		},
 		{
 			name:    "empty host",
@@ -234,6 +270,7 @@ func TestValidateJiraHost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := &Config{Jira: JiraConfig{Host: tt.host}}
 			err := cfg.ValidateJiraHost()
 			if (err != nil) != tt.wantErr {

@@ -27,7 +27,9 @@
 ### Data Model
 
 - Unified WorkItem model: common metadata (TypeMeta + ObjectMeta) with type-specific `Spec` as `json.RawMessage`, dispatched to typed structs on unmarshal. K8s-style pattern. Recursive via `Children []*WorkItem`. See ADR-0002.
-- Kinds: `jira`, `pr`, `check`, `review`, `local`.
+- Kinds: `jira`, `pr`, `check`, `review`, `local`. `Kind` is a typed `string` enum with `Validate()`, not a bare string.
+- All domain enums (`Kind`, `StalenessState`, `BranchState`) follow the same pattern: typed string, constants with zero-value = unknown/unset, `Validate()` method that guards against invalid values.
+- All Spec types validate required fields on unmarshal (e.g. `JiraSpec.Key`, `PRSpec.Repo/Number/Branch`).
 - IDs follow `{source}:{identifier}` pattern (e.g. `jira:ARO-12345`, `pr:Azure/ARO-HCP:891`, `gh-comment:3453365398`).
 
 ### TUI
@@ -70,10 +72,16 @@
 - Engine owns poll loop (5 min interval), split-close watcher goroutine, manual refresh channel.
 - Cobra CLI with RawOptions → ValidatedOptions → CompletedOptions pattern (from ARO-HCP templatize).
 
+### Config Conventions
+
+- YAML library: `sigs.k8s.io/yaml` with `UnmarshalStrict`. Struct tags are `json:` (not `yaml:`) because `sigs.k8s.io/yaml` delegates to `encoding/json`. Unknown keys in config files are rejected at load time.
+- Time-related config fields use Go duration strings (e.g. `"120h"`, `"5m"`), never integer-unit fields (e.g. `days: 5`). Parsed via `time.ParseDuration`. This applies to all current and future time config.
+
 ### Dependencies
 
 - **TUI**: bubbletea (Charm)
 - **CLI**: cobra
+- **YAML**: `sigs.k8s.io/yaml` (K8s ecosystem, strict mode)
 - **GitHub**: `google/go-github` SDK, token from `gh auth token`
 - **Jira**: `ctreminiom/go-atlassian` SDK, PAT from config
 - **LLM**: `anthropics/anthropic-sdk-go` via Vertex AI (Haiku)
