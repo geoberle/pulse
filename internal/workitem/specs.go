@@ -25,6 +25,7 @@ type ReviewSpec struct {
 }
 
 type LocalSpec struct {
+	// Opaque value from Supacode — never parse or decode.
 	WorktreeID string `json:"worktree_id"`
 	Branch     string `json:"branch"`
 	JiraKey    string `json:"jira_key,omitempty"`

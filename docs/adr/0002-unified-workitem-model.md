@@ -14,4 +14,4 @@ Pulse represents five kinds of entities (Jira issues, PRs, CI checks, review com
 
 - Serialization format is stable: state.json contains the full tree with Spec as raw JSON. New kinds are forward-compatible — old versions skip unknown Specs gracefully.
 - Type-specific logic requires a type switch or assertion on ParsedSpec. This is a small cost paid in action menu logic and prompt template rendering, not in the hot path (tree walking, diffing, rendering).
-- IDs follow `{source}:{identifier}` pattern, making them self-documenting and collision-free across kinds.
+- IDs follow `{source}:{identifier}` pattern, making them self-documenting and collision-free across kinds. The `{identifier}` part is opaque — its format is owned by the source (e.g. Supacode percent-encodes filesystem paths). Never parse, decode, or construct identifiers; treat them as passthrough values.
