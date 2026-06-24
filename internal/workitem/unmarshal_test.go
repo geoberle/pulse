@@ -168,6 +168,19 @@ func TestUnmarshalSpec_EdgeCases(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "valid JSON but validation failure leaves ParsedSpec nil",
+			item: &WorkItem{
+				TypeMeta: TypeMeta{Kind: KindJira},
+				Spec:     json.RawMessage(`{"staleness":"Active"}`),
+			},
+			wantErr: true,
+			checkFn: func(t *testing.T, item *WorkItem) {
+				if item.ParsedSpec != nil {
+					t.Errorf("expected nil ParsedSpec after validation failure, got %T", item.ParsedSpec)
+				}
+			},
+		},
+		{
 			name: "clears stale parsed spec",
 			item: &WorkItem{
 				TypeMeta:   TypeMeta{Kind: KindJira},
@@ -330,6 +343,51 @@ func TestUnmarshalSpec_RequiredFields(t *testing.T) {
 			kind: KindLocal,
 			spec: `{"worktree_id":"` + strings.Repeat("a", 4097) + `","branch":"main"}`,
 		},
+		{
+			name: "jira key too long",
+			kind: KindJira,
+			spec: `{"key":"` + strings.Repeat("A", 51) + `"}`,
+		},
+		{
+			name: "pr repo too long",
+			kind: KindPR,
+			spec: `{"repo":"` + strings.Repeat("a", 201) + `","number":1,"branch":"main"}`,
+		},
+		{
+			name: "pr branch too long",
+			kind: KindPR,
+			spec: `{"repo":"org/repo","number":1,"branch":"` + strings.Repeat("a", 501) + `"}`,
+		},
+		{
+			name: "pr split_surface_id too long",
+			kind: KindPR,
+			spec: `{"repo":"org/repo","number":1,"branch":"main","split_surface_id":"` + strings.Repeat("a", 501) + `"}`,
+		},
+		{
+			name: "check name too long",
+			kind: KindCheck,
+			spec: `{"name":"` + strings.Repeat("a", 501) + `"}`,
+		},
+		{
+			name: "review body_hash too long",
+			kind: KindReview,
+			spec: `{"file":"ok.go","body_hash":"` + strings.Repeat("a", 65) + `"}`,
+		},
+		{
+			name: "review split_surface_id too long",
+			kind: KindReview,
+			spec: `{"file":"ok.go","split_surface_id":"` + strings.Repeat("a", 501) + `"}`,
+		},
+		{
+			name: "local branch too long",
+			kind: KindLocal,
+			spec: `{"worktree_id":"abc","branch":"` + strings.Repeat("a", 501) + `"}`,
+		},
+		{
+			name: "local jira_key too long",
+			kind: KindLocal,
+			spec: `{"worktree_id":"abc","branch":"main","jira_key":"` + strings.Repeat("A", 51) + `"}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -422,8 +480,9 @@ func TestMarshalSpec_Error(t *testing.T) {
 func TestRoundTrip(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name string
-		item *WorkItem
+		name    string
+		item    *WorkItem
+		checkFn func(t *testing.T, decoded *WorkItem)
 	}{
 		{
 			name: "jira with active staleness",
@@ -437,6 +496,31 @@ func TestRoundTrip(t *testing.T) {
 				}
 				return w
 			}(),
+			checkFn: func(t *testing.T, decoded *WorkItem) {
+				spec := decoded.ParsedSpec.(*JiraSpec)
+				if spec.Staleness != StalenessActive {
+					t.Errorf("expected staleness %q, got %q", StalenessActive, spec.Staleness)
+				}
+			},
+		},
+		{
+			name: "jira with stale staleness",
+			item: func() *WorkItem {
+				w, err := NewWorkItem(KindJira, "jira:ARO-2", "Test", "New", &JiraSpec{
+					Key:       "ARO-2",
+					Staleness: StalenessStale,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return w
+			}(),
+			checkFn: func(t *testing.T, decoded *WorkItem) {
+				spec := decoded.ParsedSpec.(*JiraSpec)
+				if spec.Staleness != StalenessStale {
+					t.Errorf("expected staleness %q, got %q", StalenessStale, spec.Staleness)
+				}
+			},
 		},
 		{
 			name: "jira with zero staleness",
@@ -450,13 +534,61 @@ func TestRoundTrip(t *testing.T) {
 				}
 				return w
 			}(),
+			checkFn: func(t *testing.T, decoded *WorkItem) {
+				spec := decoded.ParsedSpec.(*JiraSpec)
+				if spec.Staleness != StalenessUnknown {
+					t.Errorf("expected staleness %q, got %q", StalenessUnknown, spec.Staleness)
+				}
+			},
 		},
 		{
-			name: "pr with zero branch state",
+			name: "pr with up-to-date branch state",
 			item: func() *WorkItem {
 				w, err := NewWorkItem(KindPR, "pr:org/repo:1", "Test PR", "open", &PRSpec{
 					Repo:        "org/repo",
 					Number:      1,
+					Branch:      "main",
+					BranchState: BranchStateUpToDate,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return w
+			}(),
+			checkFn: func(t *testing.T, decoded *WorkItem) {
+				spec := decoded.ParsedSpec.(*PRSpec)
+				if spec.BranchState != BranchStateUpToDate {
+					t.Errorf("expected branch_state %q, got %q", BranchStateUpToDate, spec.BranchState)
+				}
+			},
+		},
+		{
+			name: "pr with needs-rebase branch state",
+			item: func() *WorkItem {
+				w, err := NewWorkItem(KindPR, "pr:org/repo:2", "Test PR", "open", &PRSpec{
+					Repo:        "org/repo",
+					Number:      2,
+					Branch:      "feature",
+					BranchState: BranchStateNeedsRebase,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return w
+			}(),
+			checkFn: func(t *testing.T, decoded *WorkItem) {
+				spec := decoded.ParsedSpec.(*PRSpec)
+				if spec.BranchState != BranchStateNeedsRebase {
+					t.Errorf("expected branch_state %q, got %q", BranchStateNeedsRebase, spec.BranchState)
+				}
+			},
+		},
+		{
+			name: "pr with zero branch state",
+			item: func() *WorkItem {
+				w, err := NewWorkItem(KindPR, "pr:org/repo:3", "Test PR", "open", &PRSpec{
+					Repo:        "org/repo",
+					Number:      3,
 					Branch:      "main",
 					BranchState: BranchStateUnknown,
 				})
@@ -465,6 +597,12 @@ func TestRoundTrip(t *testing.T) {
 				}
 				return w
 			}(),
+			checkFn: func(t *testing.T, decoded *WorkItem) {
+				spec := decoded.ParsedSpec.(*PRSpec)
+				if spec.BranchState != BranchStateUnknown {
+					t.Errorf("expected branch_state %q, got %q", BranchStateUnknown, spec.BranchState)
+				}
+			},
 		},
 	}
 
@@ -484,6 +622,9 @@ func TestRoundTrip(t *testing.T) {
 			}
 			if decoded.ID != tt.item.ID {
 				t.Errorf("expected id %s, got %s", tt.item.ID, decoded.ID)
+			}
+			if tt.checkFn != nil {
+				tt.checkFn(t, &decoded)
 			}
 		})
 	}

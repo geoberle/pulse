@@ -142,7 +142,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("jira.token: max 500 chars, got %d", len(c.Jira.Token))
 	}
 	if len(c.StaleThreshold) == 0 {
-		return fmt.Errorf("stale_threshold is required (omit from config to use default)")
+		return fmt.Errorf("stale_threshold cannot be empty (internal error: default not applied)")
 	}
 	staleDur, err := c.StaleDuration()
 	if err != nil {
@@ -152,7 +152,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("stale_threshold must be 1h-8760h, got %s", c.StaleThreshold)
 	}
 	if len(c.PollInterval) == 0 {
-		return fmt.Errorf("poll_interval is required (omit from config to use default)")
+		return fmt.Errorf("poll_interval cannot be empty (internal error: default not applied)")
 	}
 	pollDur, err := c.PollDuration()
 	if err != nil {
