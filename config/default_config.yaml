@@ -1,14 +1,14 @@
 jira:
   host: https://redhat.atlassian.net
-  email: ""
-  token: ""
+  # email: sourced from env PULSE_JIRA_EMAIL or keychain
+  # token: sourced from env PULSE_JIRA_TOKEN or keychain
 repos:
   - Azure/ARO-HCP
   - Azure/ARO-Tools
 jira_project: ARO
-stale_threshold: "120h"
+stale_threshold: 120h
 poll_interval: 5m
-llm:
-  provider: ""
-  project: ""
-  region: ""
+# llm:
+#   provider: vertex
+#   project: my-gcp-project
+#   region: us-east5

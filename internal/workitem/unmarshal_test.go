@@ -2,7 +2,6 @@ package workitem
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,19 +74,44 @@ func TestUnmarshalSpecRecursive_JiraWorkItem(t *testing.T) {
 func TestUnmarshalSpec_GoldenFixtures(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		file     string
-		specType string
+		name    string
+		file    string
+		checkFn func(t *testing.T, item *WorkItem)
 	}{
 		{
-			name:     "orphan PR",
-			file:     "orphan_pr.json",
-			specType: "*workitem.PRSpec",
+			name: "orphan PR",
+			file: "orphan_pr.json",
+			checkFn: func(t *testing.T, item *WorkItem) {
+				spec, ok := item.ParsedSpec.(*PRSpec)
+				if !ok {
+					t.Fatalf("expected *PRSpec, got %T", item.ParsedSpec)
+				}
+				if spec.Repo != "Azure/ARO-HCP" {
+					t.Errorf("expected repo Azure/ARO-HCP, got %s", spec.Repo)
+				}
+				if spec.Number != 910 {
+					t.Errorf("expected number 910, got %d", spec.Number)
+				}
+				if spec.BranchState != BranchStateNeedsRebase {
+					t.Errorf("expected branch_state %q, got %q", BranchStateNeedsRebase, spec.BranchState)
+				}
+			},
 		},
 		{
-			name:     "local work",
-			file:     "local_work.json",
-			specType: "*workitem.LocalSpec",
+			name: "local work",
+			file: "local_work.json",
+			checkFn: func(t *testing.T, item *WorkItem) {
+				spec, ok := item.ParsedSpec.(*LocalSpec)
+				if !ok {
+					t.Fatalf("expected *LocalSpec, got %T", item.ParsedSpec)
+				}
+				if spec.Branch != "experiment-branch" {
+					t.Errorf("expected branch experiment-branch, got %s", spec.Branch)
+				}
+				if len(spec.WorktreeID) == 0 {
+					t.Error("expected non-empty worktree_id")
+				}
+			},
 		},
 	}
 
@@ -109,10 +133,7 @@ func TestUnmarshalSpec_GoldenFixtures(t *testing.T) {
 			if item.ParsedSpec == nil {
 				t.Fatal("expected non-nil ParsedSpec")
 			}
-			gotType := fmt.Sprintf("%T", item.ParsedSpec)
-			if gotType != tt.specType {
-				t.Errorf("expected spec type %s, got %s", tt.specType, gotType)
-			}
+			tt.checkFn(t, &item)
 		})
 	}
 }
@@ -244,6 +265,11 @@ func TestUnmarshalSpec_RequiredFields(t *testing.T) {
 			spec: `{}`,
 		},
 		{
+			name: "jira invalid key format",
+			kind: KindJira,
+			spec: `{"key":"NODASH"}`,
+		},
+		{
 			name: "pr missing repo",
 			kind: KindPR,
 			spec: `{"number":1,"branch":"main"}`,
@@ -316,11 +342,33 @@ func TestUnmarshalSpecRecursive_NilChild(t *testing.T) {
 	}
 }
 
-func TestNewWorkItem_InvalidKind(t *testing.T) {
+func TestNewWorkItem_Errors(t *testing.T) {
 	t.Parallel()
-	_, err := NewWorkItem(Kind("bogus"), "id", "label", "status", &JiraSpec{Key: "ARO-1"})
-	if err == nil {
-		t.Error("expected error for invalid kind")
+	tests := []struct {
+		name string
+		kind Kind
+		spec any
+	}{
+		{
+			name: "invalid kind",
+			kind: Kind("bogus"),
+			spec: &JiraSpec{Key: "ARO-1"},
+		},
+		{
+			name: "invalid spec (missing key)",
+			kind: KindJira,
+			spec: &JiraSpec{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewWorkItem(tt.kind, "id", "label", "status", tt.spec)
+			if err == nil {
+				t.Error("expected error")
+			}
+		})
 	}
 }
 

@@ -109,6 +109,22 @@ func TestDefaultConfigPath_XDG(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigPath_HomeDir(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	path, err := DefaultConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(home, ".config", "pulse", "config.yaml")
+	if path != expected {
+		t.Errorf("expected %s, got %s", expected, path)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	t.Parallel()
 	validCfg := func() Config {
@@ -380,15 +396,20 @@ func TestValidateJiraHost(t *testing.T) {
 			host:    "redhat.atlassian.net",
 			wantErr: true,
 		},
+		{
+			name:    "trailing slash",
+			host:    "https://redhat.atlassian.net/",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{Jira: JiraConfig{Host: tt.host}}
-			err := cfg.ValidateJiraHost()
+			err := cfg.validateJiraHost()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateJiraHost() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("validateJiraHost() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

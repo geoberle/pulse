@@ -96,13 +96,15 @@ func (c *Config) StaleDuration() (time.Duration, error) {
 	return time.ParseDuration(c.StaleThreshold)
 }
 
-// ValidateJiraHost checks that the Jira host is non-empty and uses HTTPS.
-func (c *Config) ValidateJiraHost() error {
+func (c *Config) validateJiraHost() error {
 	if len(c.Jira.Host) == 0 {
 		return fmt.Errorf("jira.host is required")
 	}
 	if !strings.HasPrefix(c.Jira.Host, "https://") {
 		return fmt.Errorf("jira.host must use https://, got %q", c.Jira.Host)
+	}
+	if strings.HasSuffix(c.Jira.Host, "/") {
+		return fmt.Errorf("jira.host must not have trailing slash, got %q", c.Jira.Host)
 	}
 	return nil
 }
@@ -127,11 +129,11 @@ func (c *Config) Validate() error {
 	if len(c.JiraProject) > 100 {
 		return fmt.Errorf("jira_project: max 100 chars, got %d", len(c.JiraProject))
 	}
-	if err := c.ValidateJiraHost(); err != nil {
-		return err
-	}
 	if len(c.Jira.Host) > 200 {
 		return fmt.Errorf("jira.host: max 200 chars, got %d", len(c.Jira.Host))
+	}
+	if err := c.validateJiraHost(); err != nil {
+		return err
 	}
 	if len(c.Jira.Email) > 200 {
 		return fmt.Errorf("jira.email: max 200 chars, got %d", len(c.Jira.Email))
@@ -153,6 +155,14 @@ func (c *Config) Validate() error {
 	if pollDur < 30*time.Second {
 		return fmt.Errorf("poll_interval must be at least 30s, got %s", c.PollInterval)
 	}
+	if len(c.LLM.Provider) > 0 {
+		if len(c.LLM.Project) == 0 {
+			return fmt.Errorf("llm.project is required when llm.provider is set")
+		}
+		if len(c.LLM.Region) == 0 {
+			return fmt.Errorf("llm.region is required when llm.provider is set")
+		}
+	}
 	if len(c.LLM.Provider) > 50 {
 		return fmt.Errorf("llm.provider: max 50 chars, got %d", len(c.LLM.Provider))
 	}
@@ -161,14 +171,6 @@ func (c *Config) Validate() error {
 	}
 	if len(c.LLM.Region) > 50 {
 		return fmt.Errorf("llm.region: max 50 chars, got %d", len(c.LLM.Region))
-	}
-	if len(c.LLM.Provider) > 0 {
-		if len(c.LLM.Project) == 0 {
-			return fmt.Errorf("llm.project is required when llm.provider is set")
-		}
-		if len(c.LLM.Region) == 0 {
-			return fmt.Errorf("llm.region is required when llm.provider is set")
-		}
 	}
 	return nil
 }

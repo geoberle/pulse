@@ -6,8 +6,8 @@ import (
 )
 
 // StalenessState represents whether a Jira issue has gone stale based on
-// the configured threshold. Empty string means staleness has not been
-// evaluated yet.
+// the configured threshold. Zero value ("") means not yet evaluated and
+// is omitted from JSON via omitempty — presence implies evaluated.
 type StalenessState string
 
 const (
@@ -27,7 +27,8 @@ func (s StalenessState) Validate() error {
 }
 
 // BranchState represents the state of a PR branch relative to its target.
-// Empty string means branch state has not been checked.
+// Zero value ("") means not yet checked and is omitted from JSON via
+// omitempty — presence implies checked.
 type BranchState string
 
 const (
@@ -63,6 +64,9 @@ func (s *JiraSpec) Validate() error {
 	if len(s.Key) == 0 {
 		return fmt.Errorf("key is required")
 	}
+	if !strings.Contains(s.Key, "-") {
+		return fmt.Errorf("invalid key format %q, expected PROJECT-NUMBER", s.Key)
+	}
 	return s.Staleness.Validate()
 }
 
@@ -97,7 +101,7 @@ func (s *PRSpec) Validate() error {
 		return fmt.Errorf("invalid repo format %q, expected owner/repo", s.Repo)
 	}
 	if s.Number <= 0 {
-		return fmt.Errorf("number is required")
+		return fmt.Errorf("number must be positive, got %d", s.Number)
 	}
 	if len(s.Branch) == 0 {
 		return fmt.Errorf("branch is required")

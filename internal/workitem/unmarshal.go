@@ -23,6 +23,7 @@ func (w *WorkItem) UnmarshalSpec() error {
 	case KindLocal:
 		spec = &LocalSpec{}
 	default:
+		// Unknown kinds tolerated for forward compatibility — ParsedSpec remains nil.
 		return nil
 	}
 	if err := json.Unmarshal(w.Spec, spec); err != nil {
@@ -65,6 +66,11 @@ func MarshalSpec(spec any) (json.RawMessage, error) {
 func NewWorkItem(kind Kind, id, label, status string, spec any) (*WorkItem, error) {
 	if err := kind.Validate(); err != nil {
 		return nil, err
+	}
+	if v, ok := spec.(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return nil, fmt.Errorf("validate spec for kind %s: %w", kind, err)
+		}
 	}
 	raw, err := MarshalSpec(spec)
 	if err != nil {
