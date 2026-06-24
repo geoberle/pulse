@@ -22,9 +22,7 @@ func NewCommand() (*cobra.Command, error) {
 			return run(cmd.Context(), opts)
 		},
 	}
-	if err := BindOptions(opts, cmd); err != nil {
-		return nil, err
-	}
+	opts.BindFlags(cmd)
 	return cmd, nil
 }
 

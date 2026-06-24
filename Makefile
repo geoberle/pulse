@@ -13,7 +13,7 @@ update-testdata:
 .PHONY: update-testdata
 
 test-compile:
-	go test -c -o /dev/null ./...
+	go test -run='^$$' ./...
 .PHONY: test-compile
 
 lint:

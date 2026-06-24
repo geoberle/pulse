@@ -5,6 +5,8 @@ import (
 	"os"
 )
 
+// TODO: Wire signal handling (SIGINT/SIGTERM) to context cancellation
+// for graceful TUI shutdown.
 func main() {
 	cmd, err := NewCommand()
 	if err != nil {

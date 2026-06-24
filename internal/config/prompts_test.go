@@ -71,6 +71,17 @@ func TestLoadPrompts_Errors(t *testing.T) {
 	}
 }
 
+func TestDefaultPromptsPath_XDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-test")
+	path, err := DefaultPromptsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/tmp/xdg-test/pulse/prompts.yaml" {
+		t.Errorf("expected /tmp/xdg-test/pulse/prompts.yaml, got %s", path)
+	}
+}
+
 func TestValidateTemplates(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -30,6 +30,7 @@
 - Kinds: `jira`, `pr`, `check`, `review`, `local`. `Kind` is a typed `string` enum with `Validate()`, not a bare string.
 - All domain enums (`Kind`, `StalenessState`, `BranchState`) follow the same pattern: typed string, constants with zero-value = unknown/unset, `Validate()` method that guards against invalid values.
 - All Spec types validate required fields on unmarshal (e.g. `JiraSpec.Key`, `PRSpec.Repo/Number/Branch`).
+- Validate on write, tolerate on read: `NewWorkItem` rejects invalid Kinds at construction; `UnmarshalSpec` skips unknown Kinds gracefully (ParsedSpec remains nil). Code that consumes ParsedSpec must handle nil. This follows the K8s API convention for forward-compatible serialization.
 - IDs follow `{source}:{identifier}` pattern (e.g. `jira:ARO-12345`, `pr:Azure/ARO-HCP:891`, `gh-comment:3453365398`).
 
 ### TUI

@@ -227,6 +227,120 @@ func TestValidate(t *testing.T) {
 			}(),
 			wantErr: true,
 		},
+		{
+			name: "poll_interval too low",
+			cfg: func() Config {
+				c := validCfg()
+				c.PollInterval = "1s"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "poll_interval boundary 30s",
+			cfg: func() Config {
+				c := validCfg()
+				c.PollInterval = "30s"
+				return c
+			}(),
+		},
+		{
+			name: "invalid repo format",
+			cfg: func() Config {
+				c := validCfg()
+				c.Repos = []string{"noslash"}
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "llm provider set without project",
+			cfg: func() Config {
+				c := validCfg()
+				c.LLM = LLMConfig{Provider: "vertex", Region: "us-east5"}
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "llm provider set without region",
+			cfg: func() Config {
+				c := validCfg()
+				c.LLM = LLMConfig{Provider: "vertex", Project: "my-project"}
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "llm fully configured",
+			cfg: func() Config {
+				c := validCfg()
+				c.LLM = LLMConfig{Provider: "vertex", Project: "proj", Region: "us-east5"}
+				return c
+			}(),
+		},
+		{
+			name: "llm all empty (disabled)",
+			cfg: func() Config {
+				c := validCfg()
+				c.LLM = LLMConfig{}
+				return c
+			}(),
+		},
+		{
+			name: "jira host too long",
+			cfg: func() Config {
+				c := validCfg()
+				c.Jira.Host = "https://" + strings.Repeat("a", 193)
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "jira email too long",
+			cfg: func() Config {
+				c := validCfg()
+				c.Jira.Email = strings.Repeat("a", 201)
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "jira token too long",
+			cfg: func() Config {
+				c := validCfg()
+				c.Jira.Token = strings.Repeat("a", 501)
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "llm provider too long",
+			cfg: func() Config {
+				c := validCfg()
+				c.LLM.Provider = strings.Repeat("a", 51)
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "llm project too long",
+			cfg: func() Config {
+				c := validCfg()
+				c.LLM.Project = strings.Repeat("a", 101)
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "llm region too long",
+			cfg: func() Config {
+				c := validCfg()
+				c.LLM.Region = strings.Repeat("a", 51)
+				return c
+			}(),
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

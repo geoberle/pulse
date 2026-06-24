@@ -1,6 +1,9 @@
 package workitem
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // StalenessState represents whether a Jira issue has gone stale based on
 // the configured threshold. Empty string means staleness has not been
@@ -90,7 +93,10 @@ func (s *PRSpec) Validate() error {
 	if len(s.Repo) == 0 {
 		return fmt.Errorf("repo is required")
 	}
-	if s.Number == 0 {
+	if !strings.Contains(s.Repo, "/") {
+		return fmt.Errorf("invalid repo format %q, expected owner/repo", s.Repo)
+	}
+	if s.Number <= 0 {
 		return fmt.Errorf("number is required")
 	}
 	if len(s.Branch) == 0 {

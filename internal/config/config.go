@@ -41,9 +41,9 @@ type Config struct {
 	PollInterval string `json:"poll_interval"`
 
 	// LLM holds configuration for the LLM provider used for review
-	// comment summarization. Optional — when omitted, LLM features
-	// are disabled. Validated lazily when the LLM client is constructed,
-	// not at config load time.
+	// comment summarization. Optional — when all fields are empty, LLM
+	// features are disabled. When Provider is set, Project and Region
+	// are required.
 	LLM LLMConfig `json:"llm"`
 }
 
@@ -66,11 +66,11 @@ type JiraConfig struct {
 }
 
 // LLMConfig holds configuration for the LLM provider used to generate
-// review comment summaries. Validated lazily when the LLM client is
-// constructed, not at config load time.
+// review comment summaries. When Provider is set, Project and Region
+// are required.
 type LLMConfig struct {
-	// Provider is the LLM backend identifier. Opaque string — validated
-	// by the LLM client constructor, not at config load time.
+	// Provider is the LLM backend identifier. Opaque string — the
+	// provider value itself is validated by the LLM client constructor.
 	// Maximum 50 characters.
 	// Example: "vertex"
 	Provider string `json:"provider"`
@@ -116,6 +116,11 @@ func (c *Config) Validate() error {
 	if len(c.Repos) > 50 {
 		return fmt.Errorf("repos: max 50 entries, got %d", len(c.Repos))
 	}
+	for _, repo := range c.Repos {
+		if !strings.Contains(repo, "/") {
+			return fmt.Errorf("invalid repo format %q, expected owner/repo", repo)
+		}
+	}
 	if len(c.JiraProject) == 0 {
 		return fmt.Errorf("jira_project is required")
 	}
@@ -141,8 +146,12 @@ func (c *Config) Validate() error {
 	if staleDur < time.Hour || staleDur > 8760*time.Hour {
 		return fmt.Errorf("stale_threshold must be 1h-8760h, got %s", c.StaleThreshold)
 	}
-	if _, err := c.PollDuration(); err != nil {
+	pollDur, err := c.PollDuration()
+	if err != nil {
 		return fmt.Errorf("invalid poll_interval: %w", err)
+	}
+	if pollDur < 30*time.Second {
+		return fmt.Errorf("poll_interval must be at least 30s, got %s", c.PollInterval)
 	}
 	if len(c.LLM.Provider) > 50 {
 		return fmt.Errorf("llm.provider: max 50 chars, got %d", len(c.LLM.Provider))
@@ -152,6 +161,14 @@ func (c *Config) Validate() error {
 	}
 	if len(c.LLM.Region) > 50 {
 		return fmt.Errorf("llm.region: max 50 chars, got %d", len(c.LLM.Region))
+	}
+	if len(c.LLM.Provider) > 0 {
+		if len(c.LLM.Project) == 0 {
+			return fmt.Errorf("llm.project is required when llm.provider is set")
+		}
+		if len(c.LLM.Region) == 0 {
+			return fmt.Errorf("llm.region is required when llm.provider is set")
+		}
 	}
 	return nil
 }

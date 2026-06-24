@@ -59,11 +59,10 @@ func DefaultOptions() (*RawOptions, error) {
 	}, nil
 }
 
-// BindOptions registers CLI flags for the given RawOptions on the cobra command.
-func BindOptions(opts *RawOptions, cmd *cobra.Command) error {
-	cmd.Flags().StringVar(&opts.ConfigFile, "config-file", opts.ConfigFile, "Path to config file")
-	cmd.Flags().StringVar(&opts.PromptsFile, "prompts-file", opts.PromptsFile, "Path to prompts file")
-	return nil
+// BindFlags registers CLI flags on the cobra command.
+func (o *RawOptions) BindFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&o.ConfigFile, "config-file", o.ConfigFile, "Path to config file")
+	cmd.Flags().StringVar(&o.PromptsFile, "prompts-file", o.PromptsFile, "Path to prompts file")
 }
 
 // Validate loads config and prompts from disk and checks all structural
@@ -94,8 +93,10 @@ func (o *RawOptions) Validate() (*ValidatedOptions, error) {
 	}, nil
 }
 
-// Complete finalizes options for execution. Drops raw inputs and retains
-// only the validated configuration needed at runtime.
+// Complete finalizes options for execution. Client construction (Jira,
+// GitHub, LLM) goes here — Jira.Email and Jira.Token are optional in
+// config and must be resolved (env, keychain) before constructing the
+// Jira client.
 func (o *ValidatedOptions) Complete() (*Options, error) {
 	return &Options{
 		completedOptions: completedOptions{

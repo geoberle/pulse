@@ -2,6 +2,7 @@ package workitem
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -107,6 +108,10 @@ func TestUnmarshalSpec_GoldenFixtures(t *testing.T) {
 			}
 			if item.ParsedSpec == nil {
 				t.Fatal("expected non-nil ParsedSpec")
+			}
+			gotType := fmt.Sprintf("%T", item.ParsedSpec)
+			if gotType != tt.specType {
+				t.Errorf("expected spec type %s, got %s", tt.specType, gotType)
 			}
 		})
 	}
@@ -254,6 +259,16 @@ func TestUnmarshalSpec_RequiredFields(t *testing.T) {
 			spec: `{"repo":"org/repo","number":1}`,
 		},
 		{
+			name: "pr invalid repo format",
+			kind: KindPR,
+			spec: `{"repo":"noslash","number":1,"branch":"main"}`,
+		},
+		{
+			name: "pr negative number",
+			kind: KindPR,
+			spec: `{"repo":"org/repo","number":-1,"branch":"main"}`,
+		},
+		{
 			name: "check missing name",
 			kind: KindCheck,
 			spec: `{}`,
@@ -298,6 +313,14 @@ func TestUnmarshalSpecRecursive_NilChild(t *testing.T) {
 	}
 	if err := item.UnmarshalSpecRecursive(); err == nil {
 		t.Error("expected error for nil child")
+	}
+}
+
+func TestNewWorkItem_InvalidKind(t *testing.T) {
+	t.Parallel()
+	_, err := NewWorkItem(Kind("bogus"), "id", "label", "status", &JiraSpec{Key: "ARO-1"})
+	if err == nil {
+		t.Error("expected error for invalid kind")
 	}
 }
 

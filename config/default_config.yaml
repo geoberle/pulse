@@ -9,6 +9,6 @@ jira_project: ARO
 stale_threshold: "120h"
 poll_interval: 5m
 llm:
-  provider: vertex
+  provider: ""
   project: ""
-  region: us-east5
+  region: ""

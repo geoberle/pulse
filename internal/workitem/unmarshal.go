@@ -60,7 +60,12 @@ func MarshalSpec(spec any) (json.RawMessage, error) {
 	return json.RawMessage(data), nil
 }
 
+// NewWorkItem constructs a WorkItem with a validated Kind and marshaled Spec.
+// Specs are stored by reference — do not mutate a spec after passing it here.
 func NewWorkItem(kind Kind, id, label, status string, spec any) (*WorkItem, error) {
+	if err := kind.Validate(); err != nil {
+		return nil, err
+	}
 	raw, err := MarshalSpec(spec)
 	if err != nil {
 		return nil, err
