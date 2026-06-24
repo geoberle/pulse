@@ -1,0 +1,19 @@
+review_comment: |
+  Review comment on {{.File}} in PR #{{.PRNumber}} ({{.Repo}}):
+  "{{.CommentBody}}"
+  Evaluate and propose a fix if valid.
+
+rebase: |
+  Rebase branch {{.Branch}} onto {{.TargetBranch}} in {{.Repo}}.
+
+jira_update: |
+  Update ARO issue {{.IssueKey}} with current status.
+  PR states: {{.PRSummary}}
+
+jira_create: |
+  Create a 1p aro-hcp jira ticket for PR #{{.PRNumber}} ({{.Repo}}).
+  PR title: {{.PRTitle}}
+
+ci_failure: |
+  PR #{{.PRNumber}} ({{.Repo}}) has failed check "{{.CheckName}}".
+  Diagnose whether this is flaky or a real failure.

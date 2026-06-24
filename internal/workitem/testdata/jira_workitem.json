@@ -1,0 +1,46 @@
+{
+  "kind": "jira",
+  "id": "jira:ARO-12345",
+  "label": "Implement DNS migration",
+  "status": "In Progress",
+  "spec": {
+    "key": "ARO-12345",
+    "staleness": "Stale"
+  },
+  "children": [
+    {
+      "kind": "pr",
+      "id": "pr:Azure/ARO-HCP:891",
+      "label": "PR #891 (ARO-HCP)",
+      "status": "open",
+      "spec": {
+        "repo": "Azure/ARO-HCP",
+        "number": 891,
+        "branch": "feature/ARO-12345-dns",
+        "branch_state": "UpToDate"
+      },
+      "children": [
+        {
+          "kind": "check",
+          "id": "check:Azure/ARO-HCP:891:e2e-test-suite",
+          "label": "e2e-test-suite",
+          "status": "failed",
+          "spec": {
+            "name": "e2e-test-suite"
+          }
+        },
+        {
+          "kind": "review",
+          "id": "gh-comment:3453365398",
+          "label": "extract shared timeout to constant",
+          "status": "pending",
+          "spec": {
+            "file": "constants.go",
+            "body_hash": "fa29b",
+            "summary": "extract shared timeout to constant"
+          }
+        }
+      ]
+    }
+  ]
+}
