@@ -141,10 +141,16 @@ type ReviewSpec struct {
 	SplitSurfaceID string `json:"split_surface_id,omitempty"`
 }
 
-// Validate checks required fields.
+// Validate checks required fields and length constraints.
 func (s *ReviewSpec) Validate() error {
 	if len(s.File) == 0 {
 		return fmt.Errorf("file is required")
+	}
+	if len(s.File) > 4096 {
+		return fmt.Errorf("file: max 4096 chars, got %d", len(s.File))
+	}
+	if len(s.Summary) > 200 {
+		return fmt.Errorf("summary: max 200 chars, got %d", len(s.Summary))
 	}
 	return nil
 }
@@ -162,10 +168,13 @@ type LocalSpec struct {
 	JiraKey string `json:"jira_key,omitempty"`
 }
 
-// Validate checks required fields.
+// Validate checks required fields and length constraints.
 func (s *LocalSpec) Validate() error {
 	if len(s.WorktreeID) == 0 {
 		return fmt.Errorf("worktree_id is required")
+	}
+	if len(s.WorktreeID) > 4096 {
+		return fmt.Errorf("worktree_id: max 4096 chars, got %d", len(s.WorktreeID))
 	}
 	if len(s.Branch) == 0 {
 		return fmt.Errorf("branch is required")

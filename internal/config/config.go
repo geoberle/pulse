@@ -141,12 +141,18 @@ func (c *Config) Validate() error {
 	if len(c.Jira.Token) > 500 {
 		return fmt.Errorf("jira.token: max 500 chars, got %d", len(c.Jira.Token))
 	}
+	if len(c.StaleThreshold) == 0 {
+		return fmt.Errorf("stale_threshold is required (omit from config to use default)")
+	}
 	staleDur, err := c.StaleDuration()
 	if err != nil {
 		return fmt.Errorf("invalid stale_threshold: %w", err)
 	}
 	if staleDur < time.Hour || staleDur > 8760*time.Hour {
 		return fmt.Errorf("stale_threshold must be 1h-8760h, got %s", c.StaleThreshold)
+	}
+	if len(c.PollInterval) == 0 {
+		return fmt.Errorf("poll_interval is required (omit from config to use default)")
 	}
 	pollDur, err := c.PollDuration()
 	if err != nil {
@@ -190,6 +196,12 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if err := yaml.UnmarshalStrict(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	if len(cfg.StaleThreshold) == 0 {
+		cfg.StaleThreshold = "120h"
+	}
+	if len(cfg.PollInterval) == 0 {
+		cfg.PollInterval = "5m"
 	}
 	return cfg, nil
 }

@@ -97,6 +97,27 @@ func TestLoadConfig_Errors(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_ExplicitEmptyDefaults(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	content := "jira_project: TEST\nstale_threshold: \"\"\npoll_interval: \"\"\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StaleThreshold != "120h" {
+		t.Errorf("expected stale_threshold restored to 120h, got %q", cfg.StaleThreshold)
+	}
+	if cfg.PollInterval != "5m" {
+		t.Errorf("expected poll_interval restored to 5m, got %q", cfg.PollInterval)
+	}
+}
+
 func TestDefaultConfigPath_XDG(t *testing.T) {
 	// t.Setenv is incompatible with t.Parallel
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-test")
@@ -187,6 +208,15 @@ func TestValidate(t *testing.T) {
 			cfg: func() Config {
 				c := validCfg()
 				c.StaleThreshold = ""
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "poll_interval empty",
+			cfg: func() Config {
+				c := validCfg()
+				c.PollInterval = ""
 				return c
 			}(),
 			wantErr: true,

@@ -34,6 +34,7 @@ func (w *WorkItem) UnmarshalSpec() error {
 			return fmt.Errorf("validate spec for kind %s: %w", w.Kind, err)
 		}
 	}
+	// Assign only after validation passes — callers never see invalid ParsedSpec.
 	w.ParsedSpec = spec
 	return nil
 }
@@ -67,6 +68,10 @@ func NewWorkItem(kind Kind, id, label, status string, spec any) (*WorkItem, erro
 	if err := kind.Validate(); err != nil {
 		return nil, err
 	}
+	meta := ObjectMeta{ID: id, Label: label, Status: status}
+	if err := meta.Validate(); err != nil {
+		return nil, err
+	}
 	if v, ok := spec.(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return nil, fmt.Errorf("validate spec for kind %s: %w", kind, err)
@@ -78,7 +83,7 @@ func NewWorkItem(kind Kind, id, label, status string, spec any) (*WorkItem, erro
 	}
 	return &WorkItem{
 		TypeMeta:   TypeMeta{Kind: kind},
-		ObjectMeta: ObjectMeta{ID: id, Label: label, Status: status},
+		ObjectMeta: meta,
 		Spec:       raw,
 		ParsedSpec: spec,
 	}, nil

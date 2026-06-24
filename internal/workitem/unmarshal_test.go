@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -314,6 +315,21 @@ func TestUnmarshalSpec_RequiredFields(t *testing.T) {
 			kind: KindLocal,
 			spec: `{"worktree_id":"abc"}`,
 		},
+		{
+			name: "review file too long",
+			kind: KindReview,
+			spec: `{"file":"` + strings.Repeat("a", 4097) + `"}`,
+		},
+		{
+			name: "review summary too long",
+			kind: KindReview,
+			spec: `{"file":"ok.go","summary":"` + strings.Repeat("a", 201) + `"}`,
+		},
+		{
+			name: "local worktree_id too long",
+			kind: KindLocal,
+			spec: `{"worktree_id":"` + strings.Repeat("a", 4097) + `","branch":"main"}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -345,26 +361,49 @@ func TestUnmarshalSpecRecursive_NilChild(t *testing.T) {
 func TestNewWorkItem_Errors(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name string
-		kind Kind
-		spec any
+		name   string
+		kind   Kind
+		id     string
+		label  string
+		status string
+		spec   any
 	}{
 		{
 			name: "invalid kind",
 			kind: Kind("bogus"),
+			id:   "id", label: "label", status: "status",
 			spec: &JiraSpec{Key: "ARO-1"},
 		},
 		{
 			name: "invalid spec (missing key)",
 			kind: KindJira,
+			id:   "id", label: "label", status: "status",
 			spec: &JiraSpec{},
+		},
+		{
+			name: "id too long",
+			kind: KindJira,
+			id:   strings.Repeat("a", 501), label: "label", status: "status",
+			spec: &JiraSpec{Key: "ARO-1"},
+		},
+		{
+			name: "label too long",
+			kind: KindJira,
+			id:   "id", label: strings.Repeat("a", 1001), status: "status",
+			spec: &JiraSpec{Key: "ARO-1"},
+		},
+		{
+			name: "status too long",
+			kind: KindJira,
+			id:   "id", label: "label", status: strings.Repeat("a", 501),
+			spec: &JiraSpec{Key: "ARO-1"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := NewWorkItem(tt.kind, "id", "label", "status", tt.spec)
+			_, err := NewWorkItem(tt.kind, tt.id, tt.label, tt.status, tt.spec)
 			if err == nil {
 				t.Error("expected error")
 			}

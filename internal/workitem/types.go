@@ -40,15 +40,30 @@ type TypeMeta struct {
 type ObjectMeta struct {
 	// ID uniquely identifies the item using the pattern "{source}:{identifier}",
 	// e.g. "jira:ARO-12345", "pr:Azure/ARO-HCP:891", "gh-comment:3453365398".
+	// Maximum 500 characters.
 	ID string `json:"id"`
 
 	// Label is a short human-readable display string for TUI rendering,
-	// e.g. the Jira summary or PR title.
+	// e.g. the Jira summary or PR title. Maximum 1000 characters.
 	Label string `json:"label"`
 
 	// Status is the upstream state of the item (e.g. "In Progress", "open",
-	// "failed", "pending"). Semantics are kind-specific.
+	// "failed", "pending"). Semantics are kind-specific. Maximum 500 characters.
 	Status string `json:"status"`
+}
+
+// Validate checks length constraints on ObjectMeta fields.
+func (m *ObjectMeta) Validate() error {
+	if len(m.ID) > 500 {
+		return fmt.Errorf("id: max 500 chars, got %d", len(m.ID))
+	}
+	if len(m.Label) > 1000 {
+		return fmt.Errorf("label: max 1000 chars, got %d", len(m.Label))
+	}
+	if len(m.Status) > 500 {
+		return fmt.Errorf("status: max 500 chars, got %d", len(m.Status))
+	}
+	return nil
 }
 
 // WorkItem is the unified tree node for all dashboard entities. It combines
