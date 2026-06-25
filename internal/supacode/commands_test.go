@@ -200,6 +200,40 @@ func TestSplitSurface_InvalidDirection(t *testing.T) {
 	}
 }
 
+func TestCommand_EmptyIDs(t *testing.T) {
+	t.Parallel()
+	c := NewClient("/nonexistent")
+
+	tests := []struct {
+		name string
+		fn   func() error
+		want string
+	}{
+		{"FocusWorktree", func() error { return c.FocusWorktree("") }, "worktreeID is required"},
+		{"NewTab", func() error { return c.NewTab("", "ls") }, "worktreeID is required"},
+		{"CloseTab", func() error { return c.CloseTab("") }, "tabID is required"},
+		{"FocusTab", func() error { return c.FocusTab("") }, "tabID is required"},
+		{"SplitSurface/worktree", func() error { return c.SplitSurface("", "t", "s", "h", "") }, "worktreeID is required"},
+		{"SplitSurface/tab", func() error { return c.SplitSurface("w", "", "s", "h", "") }, "tabID is required"},
+		{"SplitSurface/surface", func() error { return c.SplitSurface("w", "t", "", "h", "") }, "surfaceID is required"},
+		{"FocusSurface", func() error { return c.FocusSurface("", "") }, "surfaceID is required"},
+		{"CloseSurface", func() error { return c.CloseSurface("") }, "surfaceID is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.fn()
+			if err == nil {
+				t.Error("expected error for empty ID")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("expected %q in error, got: %v", tt.want, err)
+			}
+		})
+	}
+}
+
 func TestCommand_ServerError(t *testing.T) {
 	t.Parallel()
 	sock := mockServer(t, func(req []byte) []byte {

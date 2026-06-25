@@ -35,7 +35,7 @@ func Discover() (string, error) {
 		if err != nil {
 			continue
 		}
-		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
+		if err := syscall.Kill(pid, 0); err != nil {
 			continue
 		}
 		return filepath.Join(dir, name), nil

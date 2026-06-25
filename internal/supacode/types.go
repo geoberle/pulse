@@ -1,5 +1,23 @@
 package supacode
 
+// FocusedState indicates whether an item currently has focus.
+// The zero value (empty string) means unfocused.
+type FocusedState string
+
+const (
+	FocusedStateActive   FocusedState = "Active"
+	FocusedStateInactive FocusedState = ""
+)
+
+// RunningState indicates whether a script is currently executing.
+// The zero value (empty string) means not running.
+type RunningState string
+
+const (
+	RunningStateActive   RunningState = "Active"
+	RunningStateInactive RunningState = ""
+)
+
 // Repo represents a Supacode-managed repository.
 type Repo struct {
 	ID string `json:"id"`
@@ -7,20 +25,20 @@ type Repo struct {
 
 // Worktree represents a git worktree managed by Supacode.
 type Worktree struct {
-	ID      string `json:"id"`
-	Focused bool   `json:"focused"`
+	ID      string       `json:"id"`
+	Focused FocusedState `json:"focused,omitempty"`
 }
 
 // Tab represents a terminal tab within a Supacode worktree.
 type Tab struct {
-	ID      string `json:"id"`
-	Focused bool   `json:"focused"`
+	ID      string       `json:"id"`
+	Focused FocusedState `json:"focused,omitempty"`
 }
 
 // Surface represents a terminal pane within a Supacode tab.
 type Surface struct {
-	ID      string `json:"id"`
-	Focused bool   `json:"focused"`
+	ID      string       `json:"id"`
+	Focused FocusedState `json:"focused,omitempty"`
 }
 
 // ScriptKind identifies the type of a Supacode script. Values are opaque —
@@ -29,11 +47,11 @@ type ScriptKind string
 
 // Script represents a runnable script within a Supacode worktree.
 type Script struct {
-	ID          string     `json:"id"`
-	Kind        ScriptKind `json:"kind"`
-	Name        string     `json:"name"`
-	DisplayName string     `json:"displayName"`
-	Running     bool       `json:"running"`
+	ID          string       `json:"id"`
+	Kind        ScriptKind   `json:"kind"`
+	Name        string       `json:"name"`
+	DisplayName string       `json:"displayName"`
+	Running     RunningState `json:"running,omitempty"`
 }
 
 // queryRequest is the JSON envelope sent to Supacode for read operations.
@@ -66,16 +84,32 @@ type rawItem struct {
 	Running     string `json:"running"`
 }
 
-func (r rawItem) toRepo() Repo         { return Repo{ID: r.ID} }
-func (r rawItem) toWorktree() Worktree { return Worktree{ID: r.ID, Focused: r.Focused == "1"} }
-func (r rawItem) toTab() Tab           { return Tab{ID: r.ID, Focused: r.Focused == "1"} }
-func (r rawItem) toSurface() Surface   { return Surface{ID: r.ID, Focused: r.Focused == "1"} }
+func parseFocusedState(s string) FocusedState {
+	if s == "1" {
+		return FocusedStateActive
+	}
+	return FocusedStateInactive
+}
+
+func parseRunningState(s string) RunningState {
+	if s == "1" {
+		return RunningStateActive
+	}
+	return RunningStateInactive
+}
+
+func (r rawItem) toRepo() Repo { return Repo{ID: r.ID} }
+func (r rawItem) toWorktree() Worktree {
+	return Worktree{ID: r.ID, Focused: parseFocusedState(r.Focused)}
+}
+func (r rawItem) toTab() Tab         { return Tab{ID: r.ID, Focused: parseFocusedState(r.Focused)} }
+func (r rawItem) toSurface() Surface { return Surface{ID: r.ID, Focused: parseFocusedState(r.Focused)} }
 func (r rawItem) toScript() Script {
 	return Script{
 		ID:          r.ID,
 		Kind:        ScriptKind(r.Kind),
 		Name:        r.Name,
 		DisplayName: r.DisplayName,
-		Running:     r.Running == "1",
+		Running:     parseRunningState(r.Running),
 	}
 }

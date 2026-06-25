@@ -110,11 +110,14 @@ func TestLoadConfig_ExplicitEmptyDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.StaleThreshold != "120h" {
-		t.Errorf("expected stale_threshold restored to 120h, got %q", cfg.StaleThreshold)
+	if cfg.StaleThreshold != "" {
+		t.Errorf("expected stale_threshold to stay empty, got %q", cfg.StaleThreshold)
 	}
-	if cfg.PollInterval != "5m" {
-		t.Errorf("expected poll_interval restored to 5m, got %q", cfg.PollInterval)
+	if cfg.PollInterval != "" {
+		t.Errorf("expected poll_interval to stay empty, got %q", cfg.PollInterval)
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for empty stale_threshold")
 	}
 }
 
