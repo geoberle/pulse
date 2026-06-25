@@ -10,19 +10,23 @@ import (
 )
 
 const (
-	maxPayload  = 64 * 1024
-	readTimeout = 5 * time.Second
+	maxPayload = 64 * 1024
+	ioTimeout  = 5 * time.Second
 )
 
 // roundTrip performs one request/response cycle over a Unix domain socket.
 // It connects, writes the JSON request, signals end-of-write via
 // shutdown(SHUT_WR), then reads the full response until EOF.
 func roundTrip(socketPath string, req any) ([]byte, error) {
-	conn, err := net.DialTimeout("unix", socketPath, readTimeout)
+	conn, err := net.DialTimeout("unix", socketPath, ioTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("connect %s: %w", socketPath, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
+
+	if err := conn.SetDeadline(time.Now().Add(ioTimeout)); err != nil {
+		return nil, fmt.Errorf("set deadline: %w", err)
+	}
 
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -52,10 +56,6 @@ func roundTrip(socketPath string, req any) ([]byte, error) {
 	}
 	if shutdownErr != nil {
 		return nil, fmt.Errorf("shutdown(SHUT_WR): %w", shutdownErr)
-	}
-
-	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-		return nil, fmt.Errorf("set read deadline: %w", err)
 	}
 
 	resp, err := io.ReadAll(io.LimitReader(conn, maxPayload+1))

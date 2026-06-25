@@ -6,11 +6,13 @@ import (
 	"text/template"
 )
 
+const missingKeyOption = "missingkey=error"
+
 // Render executes a Go text/template against data and returns the result.
 // Uses missingkey=error to fail on undefined template variables rather
 // than silently rendering "<no value>".
 func Render(name, tmpl string, data any) (string, error) {
-	t, err := template.New(name).Option("missingkey=error").Parse(tmpl)
+	t, err := template.New(name).Option(missingKeyOption).Parse(tmpl)
 	if err != nil {
 		return "", fmt.Errorf("parse template %s: %w", name, err)
 	}
@@ -24,7 +26,7 @@ func Render(name, tmpl string, data any) (string, error) {
 // ValidateSyntax checks that a Go template string is syntactically valid.
 // Does not execute the template — only verifies it can be parsed.
 func ValidateSyntax(name, tmpl string) error {
-	_, err := template.New(name).Option("missingkey=error").Parse(tmpl)
+	_, err := template.New(name).Option(missingKeyOption).Parse(tmpl)
 	if err != nil {
 		return fmt.Errorf("template %s: %w", name, err)
 	}

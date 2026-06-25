@@ -23,7 +23,8 @@ type Surface struct {
 	Focused bool   `json:"focused"`
 }
 
-// ScriptKind identifies the type of a Supacode script.
+// ScriptKind identifies the type of a Supacode script. Values are opaque —
+// the set is defined by the Supacode protocol and may change.
 type ScriptKind string
 
 // Script represents a runnable script within a Supacode worktree.
@@ -49,9 +50,9 @@ type commandRequest struct {
 
 // response is the JSON envelope returned by Supacode for all operations.
 type response struct {
-	OK   bool              `json:"ok"`
-	Data []rawItem         `json:"data,omitempty"`
-	Err  string            `json:"error,omitempty"`
+	OK   bool      `json:"ok"`
+	Data []rawItem `json:"data,omitempty"`
+	Err  string    `json:"error,omitempty"`
 }
 
 // rawItem holds the untyped string values from the protocol. All response
@@ -65,19 +66,16 @@ type rawItem struct {
 	Running     string `json:"running"`
 }
 
-func (r rawItem) isFocused() bool  { return r.Focused == "1" }
-func (r rawItem) isRunning() bool  { return r.Running == "1" }
-
 func (r rawItem) toRepo() Repo         { return Repo{ID: r.ID} }
-func (r rawItem) toWorktree() Worktree  { return Worktree{ID: r.ID, Focused: r.isFocused()} }
-func (r rawItem) toTab() Tab            { return Tab{ID: r.ID, Focused: r.isFocused()} }
-func (r rawItem) toSurface() Surface    { return Surface{ID: r.ID, Focused: r.isFocused()} }
+func (r rawItem) toWorktree() Worktree { return Worktree{ID: r.ID, Focused: r.Focused == "1"} }
+func (r rawItem) toTab() Tab           { return Tab{ID: r.ID, Focused: r.Focused == "1"} }
+func (r rawItem) toSurface() Surface   { return Surface{ID: r.ID, Focused: r.Focused == "1"} }
 func (r rawItem) toScript() Script {
 	return Script{
 		ID:          r.ID,
 		Kind:        ScriptKind(r.Kind),
 		Name:        r.Name,
 		DisplayName: r.DisplayName,
-		Running:     r.isRunning(),
+		Running:     r.Running == "1",
 	}
 }

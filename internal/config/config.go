@@ -217,7 +217,7 @@ func DefaultConfigPath() (string, error) {
 }
 
 func defaultConfigDir() (string, error) {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); len(xdg) > 0 {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); len(xdg) != 0 {
 		return filepath.Join(xdg, "pulse"), nil
 	}
 	home, err := os.UserHomeDir()

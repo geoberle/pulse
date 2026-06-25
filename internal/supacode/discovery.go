@@ -13,7 +13,7 @@ import (
 // It checks $SUPACODE_SOCKET_PATH first, then scans /tmp/supacode-<uid>/pid-*
 // and validates each candidate's PID is alive.
 func Discover() (string, error) {
-	if p := os.Getenv("SUPACODE_SOCKET_PATH"); len(p) > 0 {
+	if p := os.Getenv("SUPACODE_SOCKET_PATH"); len(p) != 0 {
 		return p, nil
 	}
 

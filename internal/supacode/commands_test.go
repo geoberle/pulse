@@ -10,7 +10,7 @@ func TestFocusWorktree(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -26,9 +26,9 @@ func TestFocusWorktree(t *testing.T) {
 func TestNewTab(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		input    string
-		wantURL  string
+		name    string
+		input   string
+		wantURL string
 	}{
 		{
 			name:    "no input",
@@ -47,7 +47,7 @@ func TestNewTab(t *testing.T) {
 			t.Parallel()
 			var received commandRequest
 			sock := mockServer(t, func(req []byte) []byte {
-				json.Unmarshal(req, &received)
+				_ = json.Unmarshal(req, &received)
 				return []byte(`{"ok":true}`)
 			})
 
@@ -66,7 +66,7 @@ func TestCloseTab(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -83,7 +83,7 @@ func TestFocusTab(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -100,7 +100,7 @@ func TestSplitSurface(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -118,7 +118,7 @@ func TestSplitSurface_NoInput(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -156,7 +156,7 @@ func TestFocusSurface(t *testing.T) {
 			t.Parallel()
 			var received commandRequest
 			sock := mockServer(t, func(req []byte) []byte {
-				json.Unmarshal(req, &received)
+				_ = json.Unmarshal(req, &received)
 				return []byte(`{"ok":true}`)
 			})
 
@@ -175,7 +175,7 @@ func TestCloseSurface(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -185,6 +185,18 @@ func TestCloseSurface(t *testing.T) {
 	}
 	if received.Deeplink != "supacode://surface/surf-1/destroy" {
 		t.Errorf("expected supacode://surface/surf-1/destroy, got %s", received.Deeplink)
+	}
+}
+
+func TestSplitSurface_InvalidDirection(t *testing.T) {
+	t.Parallel()
+	c := NewClient("/nonexistent")
+	err := c.SplitSurface("wt-1", "tab-1", "surf-1", "x", "")
+	if err == nil {
+		t.Error("expected error for invalid direction")
+	}
+	if !strings.Contains(err.Error(), "direction must be") {
+		t.Errorf("expected direction validation error, got: %v", err)
 	}
 }
 

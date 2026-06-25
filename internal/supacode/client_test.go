@@ -53,7 +53,7 @@ func TestListTabs(t *testing.T) {
 	t.Parallel()
 	var received queryRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true,"data":[{"id":"tab-1","focused":"1"}]}`)
 	})
 
@@ -77,7 +77,7 @@ func TestListSurfaces(t *testing.T) {
 	t.Parallel()
 	var received queryRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true,"data":[{"id":"surf-1","focused":"0"}]}`)
 	})
 

@@ -32,6 +32,9 @@ func (c *Client) FocusTab(tabID string) error {
 // SplitSurface creates a horizontal or vertical split in a tab.
 // direction must be "h" or "v".
 func (c *Client) SplitSurface(worktreeID, tabID, surfaceID, direction, input string) error {
+	if direction != "h" && direction != "v" {
+		return fmt.Errorf("direction must be %q or %q, got %q", "h", "v", direction)
+	}
 	u := fmt.Sprintf("supacode://worktree/%s/tab/%s/surface/%s/split?direction=%s",
 		worktreeID, tabID, surfaceID, url.QueryEscape(direction))
 	if len(input) > 0 {
