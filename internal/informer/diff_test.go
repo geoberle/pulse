@@ -130,7 +130,7 @@ func TestCanonicalizeJSON_InvalidFallback(t *testing.T) {
 	}
 }
 
-func TestHashItem_CanonicalSpecComparison(t *testing.T) {
+func TestItemChanged_CanonicalSpecComparison(t *testing.T) {
 	t.Parallel()
 	item1 := &workitem.WorkItem{
 		TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
@@ -143,8 +143,8 @@ func TestHashItem_CanonicalSpecComparison(t *testing.T) {
 		Spec:       json.RawMessage(`{"staleness":"Active","key":"ARO-1"}`),
 	}
 
-	if hashItem(item1) != hashItem(item2) {
-		t.Error("expected same hash for semantically equal specs with different key order")
+	if itemChanged(item1, item2) {
+		t.Error("expected no change for semantically equal specs with different key order")
 	}
 }
 

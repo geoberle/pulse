@@ -1,8 +1,7 @@
 package informer
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 
 	"github.com/geoberle/pulse/internal/workitem"
@@ -20,18 +19,10 @@ func canonicalizeJSON(raw json.RawMessage) []byte {
 	return canonical
 }
 
-func hashItem(item *workitem.WorkItem) string {
-	h := sha256.New()
-	h.Write([]byte(item.Kind))
-	h.Write([]byte{0})
-	h.Write([]byte(item.ID))
-	h.Write([]byte{0})
-	h.Write([]byte(item.Label))
-	h.Write([]byte{0})
-	h.Write([]byte(item.Status))
-	h.Write([]byte{0})
-	h.Write(canonicalizeJSON(item.Spec))
-	return hex.EncodeToString(h.Sum(nil))
+func itemChanged(a, b *workitem.WorkItem) bool {
+	return a.Kind != b.Kind || a.ID != b.ID || a.Label != b.Label ||
+		a.Status != b.Status ||
+		!bytes.Equal(canonicalizeJSON(a.Spec), canonicalizeJSON(b.Spec))
 }
 
 func diffTrees(oldItems, newItems []*workitem.WorkItem, parent *workitem.WorkItem) []Event {
@@ -63,7 +54,7 @@ func diffTrees(oldItems, newItems []*workitem.WorkItem, parent *workitem.WorkIte
 			events = append(events, diffTrees(nil, newItem.Children, newItem)...)
 			continue
 		}
-		if hashItem(oldItem) != hashItem(newItem) {
+		if itemChanged(oldItem, newItem) {
 			events = append(events, Event{Type: EventUpdated, Old: oldItem, New: newItem, Parent: parent})
 		}
 		events = append(events, diffTrees(oldItem.Children, newItem.Children, newItem)...)
