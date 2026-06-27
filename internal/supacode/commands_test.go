@@ -10,7 +10,7 @@ func TestFocusWorktree(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -26,9 +26,9 @@ func TestFocusWorktree(t *testing.T) {
 func TestNewTab(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		input    string
-		wantURL  string
+		name    string
+		input   string
+		wantURL string
 	}{
 		{
 			name:    "no input",
@@ -47,7 +47,7 @@ func TestNewTab(t *testing.T) {
 			t.Parallel()
 			var received commandRequest
 			sock := mockServer(t, func(req []byte) []byte {
-				json.Unmarshal(req, &received)
+				_ = json.Unmarshal(req, &received)
 				return []byte(`{"ok":true}`)
 			})
 
@@ -66,7 +66,7 @@ func TestCloseTab(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -83,7 +83,7 @@ func TestFocusTab(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -100,12 +100,12 @@ func TestSplitSurface(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
 	c := NewClient(sock)
-	if err := c.SplitSurface("wt-1", "tab-1", "surf-1", "h", "ls"); err != nil {
+	if err := c.SplitSurface("wt-1", "tab-1", "surf-1", SplitHorizontal, "ls"); err != nil {
 		t.Fatal(err)
 	}
 	want := "supacode://worktree/wt-1/tab/tab-1/surface/surf-1/split?direction=h&input=ls"
@@ -118,12 +118,12 @@ func TestSplitSurface_NoInput(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
 	c := NewClient(sock)
-	if err := c.SplitSurface("wt-1", "tab-1", "surf-1", "v", ""); err != nil {
+	if err := c.SplitSurface("wt-1", "tab-1", "surf-1", SplitVertical, ""); err != nil {
 		t.Fatal(err)
 	}
 	want := "supacode://worktree/wt-1/tab/tab-1/surface/surf-1/split?direction=v"
@@ -156,7 +156,7 @@ func TestFocusSurface(t *testing.T) {
 			t.Parallel()
 			var received commandRequest
 			sock := mockServer(t, func(req []byte) []byte {
-				json.Unmarshal(req, &received)
+				_ = json.Unmarshal(req, &received)
 				return []byte(`{"ok":true}`)
 			})
 
@@ -175,7 +175,7 @@ func TestCloseSurface(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
@@ -185,6 +185,66 @@ func TestCloseSurface(t *testing.T) {
 	}
 	if received.Deeplink != "supacode://surface/surf-1/destroy" {
 		t.Errorf("expected supacode://surface/surf-1/destroy, got %s", received.Deeplink)
+	}
+}
+
+func TestSplitSurface_InvalidDirection(t *testing.T) {
+	t.Parallel()
+	c := NewClient("/nonexistent")
+
+	tests := []struct {
+		name      string
+		direction SplitDirection
+	}{
+		{"unknown value", SplitDirection("x")},
+		{"empty string", SplitDirection("")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := c.SplitSurface("wt-1", "tab-1", "surf-1", tt.direction, "")
+			if err == nil {
+				t.Error("expected error for invalid direction")
+			}
+			if !strings.Contains(err.Error(), "direction must be") {
+				t.Errorf("expected direction validation error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestCommand_EmptyIDs(t *testing.T) {
+	t.Parallel()
+	c := NewClient("/nonexistent")
+
+	tests := []struct {
+		name string
+		fn   func() error
+		want string
+	}{
+		{"FocusWorktree", func() error { return c.FocusWorktree("") }, "worktreeID is required"},
+		{"NewTab", func() error { return c.NewTab("", "ls") }, "worktreeID is required"},
+		{"CloseTab", func() error { return c.CloseTab("") }, "tabID is required"},
+		{"FocusTab", func() error { return c.FocusTab("") }, "tabID is required"},
+		{"SplitSurface/worktree", func() error { return c.SplitSurface("", "t", "s", SplitHorizontal, "") }, "worktreeID is required"},
+		{"SplitSurface/tab", func() error { return c.SplitSurface("w", "", "s", SplitHorizontal, "") }, "tabID is required"},
+		{"SplitSurface/surface", func() error { return c.SplitSurface("w", "t", "", SplitHorizontal, "") }, "surfaceID is required"},
+		{"FocusSurface", func() error { return c.FocusSurface("", "") }, "surfaceID is required"},
+		{"CloseSurface", func() error { return c.CloseSurface("") }, "surfaceID is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.fn()
+			if err == nil {
+				t.Error("expected error for empty ID")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("expected %q in error, got: %v", tt.want, err)
+			}
+		})
 	}
 }
 

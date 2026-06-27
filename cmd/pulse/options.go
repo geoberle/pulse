@@ -93,10 +93,9 @@ func (o *RawOptions) Validate() (*ValidatedOptions, error) {
 	}, nil
 }
 
-// Complete finalizes options for execution. Client construction (Jira,
-// GitHub, LLM) goes here — Jira.Email and Jira.Token are optional in
-// config and must be resolved (env, keychain) before constructing the
-// Jira client.
+// Complete finalizes options for execution. Currently a passthrough —
+// client construction (Jira, GitHub, LLM) will be added here when
+// those integrations are implemented.
 func (o *ValidatedOptions) Complete() (*Options, error) {
 	return &Options{
 		completedOptions: completedOptions{
@@ -107,7 +106,7 @@ func (o *ValidatedOptions) Complete() (*Options, error) {
 }
 
 // Run executes the main application loop.
-func (o *Options) Run(_ context.Context) error {
+func (o *Options) Run(ctx context.Context) error {
 	fmt.Printf("Pulse running (poll every %s, %d repos, project %s)\n",
 		o.Config.PollInterval,
 		len(o.Config.Repos),

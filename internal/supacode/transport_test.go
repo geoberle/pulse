@@ -18,13 +18,13 @@ func mockServer(t *testing.T, handler func(req []byte) []byte) string {
 	t.Helper()
 	n := sockCounter.Add(1)
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("sc-%d-%d.sock", os.Getpid(), n))
-	os.Remove(sock)
-	t.Cleanup(func() { os.Remove(sock) })
+	_ = os.Remove(sock)
+	t.Cleanup(func() { _ = os.Remove(sock) })
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 
 	go func() {
 		for {
@@ -33,13 +33,13 @@ func mockServer(t *testing.T, handler func(req []byte) []byte) string {
 				return
 			}
 			go func() {
-				defer conn.Close()
+				defer func() { _ = conn.Close() }()
 				req, err := io.ReadAll(conn)
 				if err != nil {
 					return
 				}
 				resp := handler(req)
-				conn.Write(resp)
+				_, _ = conn.Write(resp)
 			}()
 		}
 	}()
@@ -169,11 +169,11 @@ func TestDoQuery_VerifiesRequestFormat(t *testing.T) {
 	t.Parallel()
 	var received queryRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true,"data":[]}`)
 	})
 
-	doQuery(sock, queryRequest{Query: "tabs", WorktreeID: "wt-1"})
+	_, _ = doQuery(sock, queryRequest{Query: "tabs", WorktreeID: "wt-1"})
 
 	if received.Query != "tabs" {
 		t.Errorf("expected query=tabs, got %s", received.Query)
@@ -187,11 +187,11 @@ func TestDoCommand_VerifiesRequestFormat(t *testing.T) {
 	t.Parallel()
 	var received commandRequest
 	sock := mockServer(t, func(req []byte) []byte {
-		json.Unmarshal(req, &received)
+		_ = json.Unmarshal(req, &received)
 		return []byte(`{"ok":true}`)
 	})
 
-	doCommand(sock, "supacode://worktree/abc")
+	_ = doCommand(sock, "supacode://worktree/abc")
 
 	if received.Deeplink != "supacode://worktree/abc" {
 		t.Errorf("expected deeplink supacode://worktree/abc, got %s", received.Deeplink)
@@ -225,16 +225,13 @@ func TestDiscover_EnvVar(t *testing.T) {
 	}
 }
 
-func TestDiscover_NoSocket(t *testing.T) {
+func TestDiscover_NotSet(t *testing.T) {
 	t.Setenv("SUPACODE_SOCKET_PATH", "")
-	dir := t.TempDir()
-	origTmp := os.Getenv("TMPDIR")
-	defer os.Setenv("TMPDIR", origTmp)
-
 	_, err := Discover()
 	if err == nil {
-		t.Log("expected error when no socket exists, but Discover may find real socket — skipping")
-		t.SkipNow()
+		t.Fatal("expected error when SUPACODE_SOCKET_PATH not set")
 	}
-	_ = dir
+	if !strings.Contains(err.Error(), "SUPACODE_SOCKET_PATH not set") {
+		t.Errorf("unexpected error: %v", err)
+	}
 }

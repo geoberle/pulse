@@ -11,8 +11,7 @@ Reference for the Supacode Unix domain socket protocol, used by Pulse's `interna
 
 ### Discovery
 
-1. Inside Supacode terminal: `$SUPACODE_SOCKET_PATH`
-2. Outside: scan `/tmp/supacode-<uid>/pid-*`, validate PID liveness with `kill(pid, 0)`
+Pulse requires `$SUPACODE_SOCKET_PATH` (set automatically inside a Supacode terminal).
 
 ### Wire Protocol
 

@@ -1,5 +1,7 @@
 package supacode
 
+import "fmt"
+
 // Client provides typed query methods for the Supacode Unix socket protocol.
 type Client struct {
 	socketPath string
@@ -38,6 +40,9 @@ func (c *Client) ListWorktrees() ([]Worktree, error) {
 
 // ListTabs returns all tabs in a worktree.
 func (c *Client) ListTabs(worktreeID string) ([]Tab, error) {
+	if len(worktreeID) == 0 {
+		return nil, fmt.Errorf("worktreeID is required")
+	}
 	resp, err := doQuery(c.socketPath, queryRequest{Query: "tabs", WorktreeID: worktreeID})
 	if err != nil {
 		return nil, err
@@ -51,6 +56,12 @@ func (c *Client) ListTabs(worktreeID string) ([]Tab, error) {
 
 // ListSurfaces returns all surfaces (panes) in a tab.
 func (c *Client) ListSurfaces(worktreeID, tabID string) ([]Surface, error) {
+	if len(worktreeID) == 0 {
+		return nil, fmt.Errorf("worktreeID is required")
+	}
+	if len(tabID) == 0 {
+		return nil, fmt.Errorf("tabID is required")
+	}
 	resp, err := doQuery(c.socketPath, queryRequest{
 		Query:      "surfaces",
 		WorktreeID: worktreeID,
@@ -68,6 +79,9 @@ func (c *Client) ListSurfaces(worktreeID, tabID string) ([]Surface, error) {
 
 // ListScripts returns all scripts in a worktree.
 func (c *Client) ListScripts(worktreeID string) ([]Script, error) {
+	if len(worktreeID) == 0 {
+		return nil, fmt.Errorf("worktreeID is required")
+	}
 	resp, err := doQuery(c.socketPath, queryRequest{Query: "scripts", WorktreeID: worktreeID})
 	if err != nil {
 		return nil, err
