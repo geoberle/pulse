@@ -44,19 +44,19 @@ func NewPoller(prs PullRequestLister, checks CheckRunLister, repos []string, use
 
 func (p *Poller) Poll(ctx context.Context) ([]*workitem.WorkItem, error) {
 	var items []*workitem.WorkItem
-	for _, repo := range p.repos {
-		owner, name, _ := strings.Cut(repo, "/")
-		repoItems, err := p.pollRepo(ctx, owner, name, repo)
+	for _, slug := range p.repos {
+		owner, repo, _ := strings.Cut(slug, "/")
+		repoItems, err := p.pollRepo(ctx, owner, repo, slug)
 		if err != nil {
-			return nil, fmt.Errorf("poll %s: %w", repo, err)
+			return nil, fmt.Errorf("poll %s: %w", slug, err)
 		}
 		items = append(items, repoItems...)
 	}
 	return items, nil
 }
 
-func (p *Poller) pollRepo(ctx context.Context, owner, name, repo string) ([]*workitem.WorkItem, error) {
-	prs, err := p.listAllPRs(ctx, owner, name)
+func (p *Poller) pollRepo(ctx context.Context, owner, repo, slug string) ([]*workitem.WorkItem, error) {
+	prs, err := p.listAllPRs(ctx, owner, repo)
 	if err != nil {
 		return nil, fmt.Errorf("list PRs: %w", err)
 	}
@@ -66,7 +66,7 @@ func (p *Poller) pollRepo(ctx context.Context, owner, name, repo string) ([]*wor
 		if pr.User.GetLogin() != p.user {
 			continue
 		}
-		item, err := p.buildPRItem(ctx, owner, name, repo, pr)
+		item, err := p.buildPRItem(ctx, owner, repo, slug, pr)
 		if err != nil {
 			return nil, fmt.Errorf("build PR #%d: %w", pr.GetNumber(), err)
 		}
@@ -95,14 +95,14 @@ func (p *Poller) listAllPRs(ctx context.Context, owner, repo string) ([]*gogithu
 	return all, nil
 }
 
-func (p *Poller) buildPRItem(ctx context.Context, owner, name, repo string, pr *gogithub.PullRequest) (*workitem.WorkItem, error) {
+func (p *Poller) buildPRItem(ctx context.Context, owner, repo, slug string, pr *gogithub.PullRequest) (*workitem.WorkItem, error) {
 	prItem, err := workitem.NewWorkItem(
 		workitem.KindPR,
-		fmt.Sprintf("pr:%s:%d", repo, pr.GetNumber()),
+		fmt.Sprintf("pr:%s:%d", slug, pr.GetNumber()),
 		pr.GetTitle(),
 		pr.GetState(),
 		&workitem.PRSpec{
-			Repo:   repo,
+			Repo:   slug,
 			Number: pr.GetNumber(),
 			Branch: pr.Head.GetRef(),
 		},
@@ -111,12 +111,12 @@ func (p *Poller) buildPRItem(ctx context.Context, owner, name, repo string, pr *
 		return nil, fmt.Errorf("create PR work item: %w", err)
 	}
 
-	checks, err := p.fetchChecks(ctx, owner, name, pr.Head.GetSHA())
+	checks, err := p.fetchChecks(ctx, owner, repo, pr.Head.GetSHA())
 	if err != nil {
 		return nil, fmt.Errorf("fetch checks: %w", err)
 	}
 
-	reviews, err := p.fetchUnresolvedReviews(ctx, owner, name, pr.GetNumber())
+	reviews, err := p.fetchUnresolvedReviews(ctx, owner, repo, pr.GetNumber())
 	if err != nil {
 		return nil, fmt.Errorf("fetch reviews: %w", err)
 	}
