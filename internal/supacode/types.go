@@ -84,6 +84,7 @@ type rawItem struct {
 	Running     string `json:"running"`
 }
 
+// Tolerate-on-read: only "1" is active; unknown values default to inactive.
 func parseFocusedState(s string) FocusedState {
 	if s == "1" {
 		return FocusedStateActive
@@ -91,6 +92,7 @@ func parseFocusedState(s string) FocusedState {
 	return FocusedStateInactive
 }
 
+// Tolerate-on-read: only "1" is active; unknown values default to inactive.
 func parseRunningState(s string) RunningState {
 	if s == "1" {
 		return RunningStateActive

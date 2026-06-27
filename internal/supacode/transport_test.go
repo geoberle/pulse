@@ -225,16 +225,13 @@ func TestDiscover_EnvVar(t *testing.T) {
 	}
 }
 
-func TestDiscover_NoSocket(t *testing.T) {
+func TestDiscover_NotSet(t *testing.T) {
 	t.Setenv("SUPACODE_SOCKET_PATH", "")
-	dir := t.TempDir()
-	origTmp := os.Getenv("TMPDIR")
-	defer func() { _ = os.Setenv("TMPDIR", origTmp) }()
-
 	_, err := Discover()
 	if err == nil {
-		t.Log("expected error when no socket exists, but Discover may find real socket — skipping")
-		t.SkipNow()
+		t.Fatal("expected error when SUPACODE_SOCKET_PATH not set")
 	}
-	_ = dir
+	if !strings.Contains(err.Error(), "SUPACODE_SOCKET_PATH not set") {
+		t.Errorf("unexpected error: %v", err)
+	}
 }

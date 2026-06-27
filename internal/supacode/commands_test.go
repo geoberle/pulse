@@ -105,7 +105,7 @@ func TestSplitSurface(t *testing.T) {
 	})
 
 	c := NewClient(sock)
-	if err := c.SplitSurface("wt-1", "tab-1", "surf-1", "h", "ls"); err != nil {
+	if err := c.SplitSurface("wt-1", "tab-1", "surf-1", SplitHorizontal, "ls"); err != nil {
 		t.Fatal(err)
 	}
 	want := "supacode://worktree/wt-1/tab/tab-1/surface/surf-1/split?direction=h&input=ls"
@@ -123,7 +123,7 @@ func TestSplitSurface_NoInput(t *testing.T) {
 	})
 
 	c := NewClient(sock)
-	if err := c.SplitSurface("wt-1", "tab-1", "surf-1", "v", ""); err != nil {
+	if err := c.SplitSurface("wt-1", "tab-1", "surf-1", SplitVertical, ""); err != nil {
 		t.Fatal(err)
 	}
 	want := "supacode://worktree/wt-1/tab/tab-1/surface/surf-1/split?direction=v"
@@ -191,12 +191,26 @@ func TestCloseSurface(t *testing.T) {
 func TestSplitSurface_InvalidDirection(t *testing.T) {
 	t.Parallel()
 	c := NewClient("/nonexistent")
-	err := c.SplitSurface("wt-1", "tab-1", "surf-1", "x", "")
-	if err == nil {
-		t.Error("expected error for invalid direction")
+
+	tests := []struct {
+		name      string
+		direction SplitDirection
+	}{
+		{"unknown value", SplitDirection("x")},
+		{"empty string", SplitDirection("")},
 	}
-	if !strings.Contains(err.Error(), "direction must be") {
-		t.Errorf("expected direction validation error, got: %v", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := c.SplitSurface("wt-1", "tab-1", "surf-1", tt.direction, "")
+			if err == nil {
+				t.Error("expected error for invalid direction")
+			}
+			if !strings.Contains(err.Error(), "direction must be") {
+				t.Errorf("expected direction validation error, got: %v", err)
+			}
+		})
 	}
 }
 
@@ -213,9 +227,9 @@ func TestCommand_EmptyIDs(t *testing.T) {
 		{"NewTab", func() error { return c.NewTab("", "ls") }, "worktreeID is required"},
 		{"CloseTab", func() error { return c.CloseTab("") }, "tabID is required"},
 		{"FocusTab", func() error { return c.FocusTab("") }, "tabID is required"},
-		{"SplitSurface/worktree", func() error { return c.SplitSurface("", "t", "s", "h", "") }, "worktreeID is required"},
-		{"SplitSurface/tab", func() error { return c.SplitSurface("w", "", "s", "h", "") }, "tabID is required"},
-		{"SplitSurface/surface", func() error { return c.SplitSurface("w", "t", "", "h", "") }, "surfaceID is required"},
+		{"SplitSurface/worktree", func() error { return c.SplitSurface("", "t", "s", SplitHorizontal, "") }, "worktreeID is required"},
+		{"SplitSurface/tab", func() error { return c.SplitSurface("w", "", "s", SplitHorizontal, "") }, "tabID is required"},
+		{"SplitSurface/surface", func() error { return c.SplitSurface("w", "t", "", SplitHorizontal, "") }, "surfaceID is required"},
 		{"FocusSurface", func() error { return c.FocusSurface("", "") }, "surfaceID is required"},
 		{"CloseSurface", func() error { return c.CloseSurface("") }, "surfaceID is required"},
 	}
