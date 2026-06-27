@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+
 	"github.com/geoberle/pulse/internal/workitem"
 )
 
@@ -77,7 +79,7 @@ func TestEventType_Validate(t *testing.T) {
 	}
 }
 
-func TestRun_PollDispatchesEvents(t *testing.T) {
+func TestPoll_DispatchesAddedEvents(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
@@ -87,13 +89,11 @@ func TestRun_PollDispatchesEvents(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(src, 10*time.Millisecond, 1*time.Hour)
+	inf := New(logr.Discard(), src, time.Hour, time.Hour)
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	inf.Run(ctx)
+	inf.poll(context.Background())
 
 	events := h.getEvents()
 	if len(events) != 1 {
@@ -104,25 +104,23 @@ func TestRun_PollDispatchesEvents(t *testing.T) {
 	}
 }
 
-func TestRun_HasSyncedAfterFirstPoll(t *testing.T) {
+func TestPoll_SetsSynced(t *testing.T) {
 	t.Parallel()
 	src := &staticSource{items: nil}
-	inf := New(src, 10*time.Millisecond, 1*time.Hour)
+	inf := New(logr.Discard(), src, time.Hour, time.Hour)
 
 	if inf.HasSynced() {
-		t.Fatal("expected HasSynced=false before Run")
+		t.Fatal("expected HasSynced=false before poll")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	inf.Run(ctx)
+	inf.poll(context.Background())
 
 	if !inf.HasSynced() {
-		t.Fatal("expected HasSynced=true after Run")
+		t.Fatal("expected HasSynced=true after poll")
 	}
 }
 
-func TestRun_PollDetectsChanges(t *testing.T) {
+func TestPoll_NoEventsOnUnchangedData(t *testing.T) {
 	t.Parallel()
 	item := &workitem.WorkItem{
 		TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
@@ -130,21 +128,21 @@ func TestRun_PollDetectsChanges(t *testing.T) {
 		Spec:       json.RawMessage(`{"key":"ARO-1"}`),
 	}
 	src := &staticSource{items: []*workitem.WorkItem{item}}
-	inf := New(src, 10*time.Millisecond, 1*time.Hour)
+	inf := New(logr.Discard(), src, time.Hour, time.Hour)
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
-	defer cancel()
-	inf.Run(ctx)
+	inf.poll(context.Background())
+	h.resetEvents()
+	inf.poll(context.Background())
 
 	events := h.getEvents()
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event (no change on re-poll), got %d", len(events))
+	if len(events) != 0 {
+		t.Fatalf("expected 0 events on re-poll of unchanged data, got %d", len(events))
 	}
 }
 
-func TestRun_RelistDeliversAllItems(t *testing.T) {
+func TestRelist_DeliversAllItemsAsUpdated(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
@@ -159,36 +157,27 @@ func TestRun_RelistDeliversAllItems(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	// Poll long, relist short — relist fires before second poll
-	inf := New(src, 1*time.Hour, 20*time.Millisecond)
+	inf := New(logr.Discard(), src, time.Hour, time.Hour)
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	inf.Run(ctx)
+	inf.poll(context.Background())
+	h.resetEvents()
+	inf.relist()
 
 	events := h.getEvents()
-	// First poll: 2 Added. Then relist: 2 Updated.
-	addedCount := 0
-	relistCount := 0
+	updatedCount := 0
 	for _, e := range events {
-		if e.Type == EventAdded {
-			addedCount++
-		}
-		if e.Type == EventUpdated && e.Old == nil {
-			relistCount++
+		if e.Type == EventUpdated {
+			updatedCount++
 		}
 	}
-	if addedCount != 2 {
-		t.Errorf("expected 2 Added events from initial poll, got %d", addedCount)
-	}
-	if relistCount < 2 {
-		t.Errorf("expected at least 2 Updated events from relist, got %d", relistCount)
+	if updatedCount != 2 {
+		t.Errorf("expected 2 Updated events from relist, got %d", updatedCount)
 	}
 }
 
-func TestRun_DispatchesToMultipleHandlers(t *testing.T) {
+func TestPoll_DispatchesToMultipleHandlers(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
@@ -198,15 +187,13 @@ func TestRun_DispatchesToMultipleHandlers(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(src, 10*time.Millisecond, 1*time.Hour)
+	inf := New(logr.Discard(), src, time.Hour, time.Hour)
 	h1 := &recordingHandler{}
 	h2 := &recordingHandler{}
 	inf.RegisterHandler(h1)
 	inf.RegisterHandler(h2)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	inf.Run(ctx)
+	inf.poll(context.Background())
 
 	if len(h1.getEvents()) == 0 {
 		t.Error("handler 1 received no events")
@@ -216,7 +203,7 @@ func TestRun_DispatchesToMultipleHandlers(t *testing.T) {
 	}
 }
 
-func TestRun_DeleteEvent(t *testing.T) {
+func TestPoll_DeleteEvent(t *testing.T) {
 	t.Parallel()
 	item := &workitem.WorkItem{
 		TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
@@ -224,15 +211,13 @@ func TestRun_DeleteEvent(t *testing.T) {
 		Spec:       json.RawMessage(`{"key":"ARO-1"}`),
 	}
 	src := &staticSource{items: []*workitem.WorkItem{item}}
-	inf := New(src, 15*time.Millisecond, 1*time.Hour)
+	inf := New(logr.Discard(), src, time.Hour, time.Hour)
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
-	// First poll adds item
 	inf.poll(context.Background())
 	h.resetEvents()
 
-	// Remove item, next poll should delete
 	src.setItems(nil)
 	inf.poll(context.Background())
 
@@ -258,7 +243,7 @@ func TestCache_ReturnsCurrentState(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(src, 10*time.Millisecond, 1*time.Hour)
+	inf := New(logr.Discard(), src, time.Hour, time.Hour)
 
 	if len(inf.Cache()) != 0 {
 		t.Fatalf("expected empty cache before poll, got %d", len(inf.Cache()))
@@ -274,7 +259,7 @@ func TestCache_ReturnsCurrentState(t *testing.T) {
 	}
 }
 
-func TestRun_RelistIncludesChildren(t *testing.T) {
+func TestRelist_IncludesChildren(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
@@ -291,23 +276,22 @@ func TestRun_RelistIncludesChildren(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(src, 1*time.Hour, 20*time.Millisecond)
+	inf := New(logr.Discard(), src, time.Hour, time.Hour)
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	inf.Run(ctx)
+	inf.poll(context.Background())
+	h.resetEvents()
+	inf.relist()
 
 	events := h.getEvents()
-	// Initial poll: 2 Added (parent + child). Relist: 2 Updated (parent + child).
 	updatedCount := 0
 	for _, e := range events {
-		if e.Type == EventUpdated && e.Old == nil {
+		if e.Type == EventUpdated {
 			updatedCount++
 		}
 	}
-	if updatedCount < 2 {
-		t.Errorf("expected at least 2 Updated events from relist (parent+child), got %d", updatedCount)
+	if updatedCount != 2 {
+		t.Errorf("expected 2 Updated events from relist (parent+child), got %d", updatedCount)
 	}
 }

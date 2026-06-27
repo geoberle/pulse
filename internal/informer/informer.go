@@ -5,11 +5,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-logr/logr"
+
 	"github.com/geoberle/pulse/internal/workitem"
 )
 
-// Source provides the current set of work items. Implementations fetch from
-// external systems (Jira, GitHub, etc.).
+// Source provides the current set of work items. Implementations must not
+// return nil elements in the slice or in Children.
 type Source interface {
 	List(ctx context.Context) ([]*workitem.WorkItem, error)
 }
@@ -21,16 +23,19 @@ type Informer struct {
 	cache          []*workitem.WorkItem
 	handlers       []Handler
 	synced         atomic.Bool
+	log            logr.Logger
 }
 
-func New(source Source, pollInterval, relistInterval time.Duration) *Informer {
+func New(log logr.Logger, source Source, pollInterval, relistInterval time.Duration) *Informer {
 	return &Informer{
+		log:            log,
 		source:         source,
 		pollInterval:   pollInterval,
 		relistInterval: relistInterval,
 	}
 }
 
+// RegisterHandler adds a handler. Must be called before Run.
 func (inf *Informer) RegisterHandler(h Handler) {
 	inf.handlers = append(inf.handlers, h)
 }
@@ -60,6 +65,7 @@ func (inf *Informer) Run(ctx context.Context) {
 func (inf *Informer) poll(ctx context.Context) {
 	items, err := inf.source.List(ctx)
 	if err != nil {
+		inf.log.Error(err, "failed to list work items")
 		return
 	}
 	events := diffTrees(inf.cache, items, nil)
@@ -70,26 +76,17 @@ func (inf *Informer) poll(ctx context.Context) {
 
 func (inf *Informer) relist() {
 	var events []Event
-	for _, item := range inf.cache {
-		if item == nil {
-			continue
-		}
-		events = append(events, Event{Type: EventUpdated, New: item})
-		events = append(events, relistChildren(item.Children, item)...)
-	}
+	walkTree(inf.cache, nil, func(item, parent *workitem.WorkItem) {
+		events = append(events, Event{Type: EventUpdated, New: item, Parent: parent})
+	})
 	inf.dispatch(events)
 }
 
-func relistChildren(items []*workitem.WorkItem, parent *workitem.WorkItem) []Event {
-	var events []Event
+func walkTree(items []*workitem.WorkItem, parent *workitem.WorkItem, fn func(*workitem.WorkItem, *workitem.WorkItem)) {
 	for _, item := range items {
-		if item == nil {
-			continue
-		}
-		events = append(events, Event{Type: EventUpdated, New: item, Parent: parent})
-		events = append(events, relistChildren(item.Children, item)...)
+		fn(item, parent)
+		walkTree(item.Children, item, fn)
 	}
-	return events
 }
 
 func (inf *Informer) dispatch(events []Event) {
@@ -105,7 +102,7 @@ func (inf *Informer) HasSynced() bool {
 }
 
 // Cache returns the current cached items. The returned slice and its elements
-// must not be mutated.
+// must not be mutated. Must not be called concurrently with Run.
 func (inf *Informer) Cache() []*workitem.WorkItem {
 	return inf.cache
 }

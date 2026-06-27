@@ -84,32 +84,6 @@ func TestDiffTrees_GoldenFixtures(t *testing.T) {
 	}
 }
 
-func TestDiffTrees_NilItemsSkipped(t *testing.T) {
-	t.Parallel()
-	oldItems := []*workitem.WorkItem{
-		nil,
-		{
-			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
-			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
-			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
-		},
-	}
-	newItems := []*workitem.WorkItem{
-		{
-			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
-			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
-			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
-		},
-		nil,
-	}
-
-	events := diffTrees(oldItems, newItems, nil)
-
-	if len(events) != 0 {
-		t.Fatalf("expected 0 events with nil items skipped, got %d: %s", len(events), formatEvents(events))
-	}
-}
-
 func TestCanonicalizeJSON_KeyOrder(t *testing.T) {
 	t.Parallel()
 	a := json.RawMessage(`{"key":"ARO-1","staleness":"Active"}`)
