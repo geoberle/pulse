@@ -1,0 +1,16 @@
+{
+  "name": "empty cache to new items",
+  "old": [],
+  "new": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "In Progress",
+      "spec": {"key": "ARO-100"}
+    }
+  ],
+  "expected_events": [
+    {"type": "Added", "new_id": "jira:ARO-100", "parent_id": ""}
+  ]
+}

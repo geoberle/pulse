@@ -47,6 +47,14 @@ func (b BranchState) Validate() error {
 	}
 }
 
+var (
+	_ Spec = (*JiraSpec)(nil)
+	_ Spec = (*PRSpec)(nil)
+	_ Spec = (*CheckSpec)(nil)
+	_ Spec = (*ReviewSpec)(nil)
+	_ Spec = (*LocalSpec)(nil)
+)
+
 // JiraSpec holds type-specific fields for a Jira work item (Story or Bug).
 type JiraSpec struct {
 	// Key is the Jira issue key. Required. Format: "PROJECT-NUMBER".
