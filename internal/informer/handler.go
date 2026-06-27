@@ -1,6 +1,10 @@
 package informer
 
-import "github.com/geoberle/pulse/internal/workitem"
+import (
+	"fmt"
+
+	"github.com/geoberle/pulse/internal/workitem"
+)
 
 type EventType string
 
@@ -9,6 +13,15 @@ const (
 	EventUpdated EventType = "Updated"
 	EventDeleted EventType = "Deleted"
 )
+
+func (e EventType) Validate() error {
+	switch e {
+	case EventAdded, EventUpdated, EventDeleted:
+		return nil
+	default:
+		return fmt.Errorf("unknown event type %q", e)
+	}
+}
 
 type Event struct {
 	Type   EventType

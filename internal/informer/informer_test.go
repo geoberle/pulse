@@ -15,6 +15,31 @@ func (h *recordingHandler) OnEvent(e Event) {
 	h.events = append(h.events, e)
 }
 
+func TestEventType_Validate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		et      EventType
+		wantErr bool
+	}{
+		{name: "Added", et: EventAdded},
+		{name: "Updated", et: EventUpdated},
+		{name: "Deleted", et: EventDeleted},
+		{name: "unknown", et: EventType("bogus"), wantErr: true},
+		{name: "empty", et: EventType(""), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.et.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestSync_DispatchesToHandlers(t *testing.T) {
 	t.Parallel()
 	inf := New()

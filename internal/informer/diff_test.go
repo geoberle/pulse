@@ -84,6 +84,70 @@ func TestDiffTrees_GoldenFixtures(t *testing.T) {
 	}
 }
 
+func TestDiffTrees_NilItemsSkipped(t *testing.T) {
+	t.Parallel()
+	oldItems := []*workitem.WorkItem{
+		nil,
+		{
+			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+		},
+	}
+	newItems := []*workitem.WorkItem{
+		{
+			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+		},
+		nil,
+	}
+
+	events := diffTrees(oldItems, newItems, nil)
+
+	if len(events) != 0 {
+		t.Fatalf("expected 0 events with nil items skipped, got %d: %s", len(events), formatEvents(events))
+	}
+}
+
+func TestCanonicalizeJSON_KeyOrder(t *testing.T) {
+	t.Parallel()
+	a := json.RawMessage(`{"key":"ARO-1","staleness":"Active"}`)
+	b := json.RawMessage(`{"staleness":"Active","key":"ARO-1"}`)
+
+	if string(canonicalizeJSON(a)) != string(canonicalizeJSON(b)) {
+		t.Error("expected identical canonical form for semantically equal JSON")
+	}
+}
+
+func TestCanonicalizeJSON_InvalidFallback(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`{broken`)
+	result := canonicalizeJSON(raw)
+
+	if string(result) != string(raw) {
+		t.Errorf("expected fallback to raw bytes, got %s", string(result))
+	}
+}
+
+func TestHashItem_CanonicalSpecComparison(t *testing.T) {
+	t.Parallel()
+	item1 := &workitem.WorkItem{
+		TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+		ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+		Spec:       json.RawMessage(`{"key":"ARO-1","staleness":"Active"}`),
+	}
+	item2 := &workitem.WorkItem{
+		TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+		ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+		Spec:       json.RawMessage(`{"staleness":"Active","key":"ARO-1"}`),
+	}
+
+	if hashItem(item1) != hashItem(item2) {
+		t.Error("expected same hash for semantically equal specs with different key order")
+	}
+}
+
 func formatEvents(events []Event) string {
 	data, _ := json.MarshalIndent(events, "", "  ")
 	return string(data)
