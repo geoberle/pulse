@@ -2,6 +2,7 @@ package workitem
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -424,7 +425,7 @@ func TestNewWorkItem_Errors(t *testing.T) {
 		id     string
 		label  string
 		status string
-		spec   any
+		spec   Spec
 	}{
 		{
 			name: "invalid kind",
@@ -469,9 +470,16 @@ func TestNewWorkItem_Errors(t *testing.T) {
 	}
 }
 
+type unmarshalableSpec struct{}
+
+func (unmarshalableSpec) Validate() error { return nil }
+func (unmarshalableSpec) MarshalJSON() ([]byte, error) {
+	return nil, fmt.Errorf("forced marshal error")
+}
+
 func TestMarshalSpec_Error(t *testing.T) {
 	t.Parallel()
-	_, err := MarshalSpec(make(chan int))
+	_, err := MarshalSpec(unmarshalableSpec{})
 	if err == nil {
 		t.Error("expected error for unmarshalable spec")
 	}

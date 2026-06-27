@@ -5,6 +5,11 @@ import (
 	"fmt"
 )
 
+// Spec is implemented by all kind-specific spec structs.
+type Spec interface {
+	Validate() error
+}
+
 // Kind identifies the type of a WorkItem. Each kind maps to a
 // corresponding Spec struct (e.g. KindJira → JiraSpec).
 type Kind string
@@ -85,5 +90,5 @@ type WorkItem struct {
 
 	// ParsedSpec holds the deserialized Spec after UnmarshalSpec is called.
 	// Not serialized — populated at runtime only.
-	ParsedSpec any `json:"-"`
+	ParsedSpec Spec `json:"-"`
 }
