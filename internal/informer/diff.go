@@ -8,8 +8,10 @@ import (
 )
 
 func canonicalizeJSON(raw json.RawMessage) []byte {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := dec.Decode(&v); err != nil {
 		return raw
 	}
 	canonical, err := json.Marshal(v)
