@@ -17,10 +17,10 @@ type expectedEvent struct {
 }
 
 type diffFixture struct {
-	Name           string             `json:"name"`
+	Name           string               `json:"name"`
 	Old            []*workitem.WorkItem `json:"old"`
 	New            []*workitem.WorkItem `json:"new"`
-	ExpectedEvents []expectedEvent     `json:"expected_events"`
+	ExpectedEvents []expectedEvent      `json:"expected_events"`
 }
 
 func TestDiffTrees_GoldenFixtures(t *testing.T) {
