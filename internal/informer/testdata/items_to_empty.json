@@ -1,0 +1,16 @@
+{
+  "name": "items removed",
+  "old": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "In Progress",
+      "spec": {"key": "ARO-100"}
+    }
+  ],
+  "new": [],
+  "expected_events": [
+    {"type": "Deleted", "old_id": "jira:ARO-100", "parent_id": ""}
+  ]
+}

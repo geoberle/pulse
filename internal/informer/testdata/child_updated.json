@@ -1,0 +1,42 @@
+{
+  "name": "child status changed fires Updated with parent",
+  "old": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "In Progress",
+      "spec": {"key": "ARO-100"},
+      "children": [
+        {
+          "kind": "check",
+          "id": "check:Azure/ARO-HCP:50:e2e",
+          "label": "e2e",
+          "status": "running",
+          "spec": {"name": "e2e"}
+        }
+      ]
+    }
+  ],
+  "new": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "In Progress",
+      "spec": {"key": "ARO-100"},
+      "children": [
+        {
+          "kind": "check",
+          "id": "check:Azure/ARO-HCP:50:e2e",
+          "label": "e2e",
+          "status": "failed",
+          "spec": {"name": "e2e"}
+        }
+      ]
+    }
+  ],
+  "expected_events": [
+    {"type": "Updated", "old_id": "check:Azure/ARO-HCP:50:e2e", "new_id": "check:Azure/ARO-HCP:50:e2e", "parent_id": "jira:ARO-100"}
+  ]
+}

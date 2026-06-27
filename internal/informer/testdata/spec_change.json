@@ -1,0 +1,24 @@
+{
+  "name": "spec content change fires Updated",
+  "old": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "In Progress",
+      "spec": {"key": "ARO-100"}
+    }
+  ],
+  "new": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "In Progress",
+      "spec": {"key": "ARO-100", "staleness": "Stale"}
+    }
+  ],
+  "expected_events": [
+    {"type": "Updated", "old_id": "jira:ARO-100", "new_id": "jira:ARO-100", "parent_id": ""}
+  ]
+}

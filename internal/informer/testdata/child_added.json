@@ -1,0 +1,34 @@
+{
+  "name": "child added to existing parent",
+  "old": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "In Progress",
+      "spec": {"key": "ARO-100"},
+      "children": []
+    }
+  ],
+  "new": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "In Progress",
+      "spec": {"key": "ARO-100"},
+      "children": [
+        {
+          "kind": "pr",
+          "id": "pr:Azure/ARO-HCP:50",
+          "label": "PR #50",
+          "status": "open",
+          "spec": {"repo": "Azure/ARO-HCP", "number": 50, "branch": "fix-dns"}
+        }
+      ]
+    }
+  ],
+  "expected_events": [
+    {"type": "Added", "new_id": "pr:Azure/ARO-HCP:50", "parent_id": "jira:ARO-100"}
+  ]
+}

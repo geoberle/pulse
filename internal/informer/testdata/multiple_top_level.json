@@ -1,0 +1,39 @@
+{
+  "name": "add and remove across multiple top-level items",
+  "old": [
+    {
+      "kind": "jira",
+      "id": "jira:ARO-100",
+      "label": "Fix DNS",
+      "status": "Done",
+      "spec": {"key": "ARO-100"}
+    },
+    {
+      "kind": "pr",
+      "id": "pr:Azure/ARO-HCP:70",
+      "label": "Orphan PR",
+      "status": "open",
+      "spec": {"repo": "Azure/ARO-HCP", "number": 70, "branch": "orphan"}
+    }
+  ],
+  "new": [
+    {
+      "kind": "pr",
+      "id": "pr:Azure/ARO-HCP:70",
+      "label": "Orphan PR",
+      "status": "open",
+      "spec": {"repo": "Azure/ARO-HCP", "number": 70, "branch": "orphan"}
+    },
+    {
+      "kind": "local",
+      "id": "local:wt-abc",
+      "label": "experiment",
+      "status": "",
+      "spec": {"worktree_id": "wt-abc", "branch": "experiment"}
+    }
+  ],
+  "expected_events": [
+    {"type": "Added", "new_id": "local:wt-abc", "parent_id": ""},
+    {"type": "Deleted", "old_id": "jira:ARO-100", "parent_id": ""}
+  ]
+}
