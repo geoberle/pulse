@@ -3,10 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
+	gogithub "github.com/google/go-github/v72/github"
 	"github.com/spf13/cobra"
 
 	"github.com/geoberle/pulse/internal/config"
+	"github.com/geoberle/pulse/internal/engine"
+	loghandler "github.com/geoberle/pulse/internal/handler/log"
+	"github.com/geoberle/pulse/internal/informer"
+	"github.com/geoberle/pulse/internal/poller"
+	ghpoller "github.com/geoberle/pulse/internal/poller/github"
 )
 
 // RawOptions holds unvalidated CLI flag values. Populated by cobra flag
@@ -107,10 +116,41 @@ func (o *ValidatedOptions) Complete() (*Options, error) {
 
 // Run executes the main application loop.
 func (o *Options) Run(ctx context.Context) error {
-	fmt.Printf("Pulse running (poll every %s, %d repos, project %s)\n",
-		o.Config.PollInterval,
-		len(o.Config.Repos),
-		o.Config.JiraProject,
-	)
+	log := newLogger()
+
+	pollDur, err := o.Config.PollDuration()
+	if err != nil {
+		return fmt.Errorf("poll interval: %w", err)
+	}
+	relistDur := 5 * pollDur
+
+	ghToken, err := ghpoller.Token(ctx)
+	if err != nil {
+		return fmt.Errorf("github auth: %w", err)
+	}
+	ghUser, err := ghpoller.User(ctx)
+	if err != nil {
+		return fmt.Errorf("github user: %w", err)
+	}
+
+	ghClient := gogithub.NewClient(nil).WithAuthToken(ghToken)
+	ghPoll := ghpoller.NewPoller(ghClient.PullRequests, ghClient.Checks, o.Config.Repos, ghUser)
+
+	eng := engine.New(log.WithName("engine"), []poller.Poller{ghPoll})
+	inf := informer.New(log.WithName("informer"), eng, pollDur, relistDur)
+	inf.RegisterHandler(loghandler.NewHandler(log.WithName("event")))
+
+	log.Info("starting", "poll_interval", pollDur, "repos", o.Config.Repos, "user", ghUser)
+	inf.Run(ctx)
 	return nil
+}
+
+func newLogger() logr.Logger {
+	return funcr.New(func(prefix, args string) {
+		if len(prefix) > 0 {
+			fmt.Fprintf(os.Stderr, "%s %s\n", prefix, args)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s\n", args)
+		}
+	}, funcr.Options{Verbosity: 1})
 }

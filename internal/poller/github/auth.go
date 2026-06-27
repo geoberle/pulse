@@ -19,3 +19,16 @@ func Token(ctx context.Context) (string, error) {
 	}
 	return token, nil
 }
+
+// User returns the authenticated GitHub username by running "gh api user".
+func User(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "api", "user", "--jq", ".login").Output()
+	if err != nil {
+		return "", fmt.Errorf("gh api user: %w", err)
+	}
+	login := strings.TrimSpace(string(out))
+	if len(login) == 0 {
+		return "", fmt.Errorf("gh api user returned empty login")
+	}
+	return login, nil
+}
