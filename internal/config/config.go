@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"sigs.k8s.io/yaml"
 )
+
+var jiraProjectRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]+$`)
 
 // Config holds the top-level application configuration loaded from
 // config.yaml. Fields map 1:1 to YAML keys.
@@ -126,6 +129,9 @@ func (c *Config) Validate() error {
 	}
 	if len(c.JiraProject) > 100 {
 		return fmt.Errorf("jira_project: max 100 chars, got %d", len(c.JiraProject))
+	}
+	if !jiraProjectRE.MatchString(c.JiraProject) {
+		return fmt.Errorf("jira_project must be uppercase alphanumeric (e.g. ARO), got %q", c.JiraProject)
 	}
 	if len(c.Jira.Host) > 200 {
 		return fmt.Errorf("jira.host: max 200 chars, got %d", len(c.Jira.Host))

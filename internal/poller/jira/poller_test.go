@@ -269,6 +269,23 @@ func TestPoll(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "empty issue key returns validation error",
+			searcher: &mockSearcher{searchFn: func(_ context.Context, _ string, _, _ []string, _ int, _ string) (*models.IssueSearchJQLSchemeV2, *models.ResponseScheme, error) {
+				return &models.IssueSearchJQLSchemeV2{
+					Issues: []*models.IssueSchemeV2{
+						{
+							Key: "",
+							Fields: &models.IssueFieldsSchemeV2{
+								Summary: "bad issue",
+								Status:  &models.StatusScheme{Name: "Open"},
+							},
+						},
+					},
+				}, nil, nil
+			}},
+			wantErr: true,
+		},
+		{
 			name:    "uses correct JQL with project",
 			project: "MYPROJ",
 			searcher: &mockSearcher{searchFn: func(_ context.Context, jql string, _, _ []string, _ int, _ string) (*models.IssueSearchJQLSchemeV2, *models.ResponseScheme, error) {

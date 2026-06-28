@@ -207,6 +207,24 @@ func TestValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "invalid jira_project format",
+			cfg: func() Config {
+				c := validCfg()
+				c.JiraProject = "bad project"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "lowercase jira_project",
+			cfg: func() Config {
+				c := validCfg()
+				c.JiraProject = "aro"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
 			name: "stale_threshold empty",
 			cfg: func() Config {
 				c := validCfg()
