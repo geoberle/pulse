@@ -54,13 +54,11 @@ type JiraConfig struct {
 	// Example: "https://redhat.atlassian.net"
 	Host string `json:"host"`
 
-	// Email is the Jira account email for API authentication.
-	// Optional in config — may be sourced from environment or keychain.
+	// Email is the Jira account email for API authentication. Required.
 	// Maximum 200 characters.
 	Email string `json:"email"`
 
-	// Token is the Jira API token (PAT) for authentication.
-	// Optional in config — may be sourced from environment or keychain.
+	// Token is the Jira API token (PAT) for authentication. Required.
 	// Maximum 500 characters.
 	Token string `json:"token"`
 }
@@ -135,8 +133,14 @@ func (c *Config) Validate() error {
 	if err := c.validateJiraHost(); err != nil {
 		return err
 	}
+	if len(c.Jira.Email) == 0 {
+		return fmt.Errorf("jira.email is required")
+	}
 	if len(c.Jira.Email) > 200 {
 		return fmt.Errorf("jira.email: max 200 chars, got %d", len(c.Jira.Email))
+	}
+	if len(c.Jira.Token) == 0 {
+		return fmt.Errorf("jira.token is required")
 	}
 	if len(c.Jira.Token) > 500 {
 		return fmt.Errorf("jira.token: max 500 chars, got %d", len(c.Jira.Token))

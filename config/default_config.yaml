@@ -1,7 +1,7 @@
 jira:
   host: https://redhat.atlassian.net
-  # email: sourced from env PULSE_JIRA_EMAIL or keychain
-  # token: sourced from env PULSE_JIRA_TOKEN or keychain
+  email: user@example.com
+  token: your-jira-api-token
 repos:
   - Azure/ARO-HCP
   - Azure/ARO-Tools

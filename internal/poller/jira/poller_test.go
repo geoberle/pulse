@@ -30,6 +30,7 @@ func TestPoll(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		project   string
 		searcher  IssueSearcher
 		wantItems int
 		wantErr   bool
@@ -211,7 +212,8 @@ func TestPoll(t *testing.T) {
 			},
 		},
 		{
-			name: "uses correct JQL with project",
+			name:    "uses correct JQL with project",
+			project: "MYPROJ",
 			searcher: &mockSearcher{searchFn: func(_ context.Context, jql string, _, _ []string, _ int, _ string) (*models.IssueSearchJQLSchemeV2, *models.ResponseScheme, error) {
 				want := `project = MYPROJ AND (assignee = currentUser() OR creator = currentUser()) AND type in (Story, Bug) AND status != Closed`
 				if jql != want {
@@ -225,9 +227,9 @@ func TestPoll(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			project := "ARO"
-			if tt.name == "uses correct JQL with project" {
-				project = "MYPROJ"
+			project := tt.project
+			if len(project) == 0 {
+				project = "ARO"
 			}
 
 			p := NewPoller(tt.searcher, project, staleThreshold)

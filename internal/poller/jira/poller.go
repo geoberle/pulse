@@ -70,24 +70,22 @@ func (p *Poller) Poll(ctx context.Context) ([]*workitem.WorkItem, error) {
 }
 
 func (p *Poller) buildItem(issue *models.IssueSchemeV2) (*workitem.WorkItem, error) {
-	staleness := workitem.StalenessUnknown
-	if issue.Fields != nil && issue.Fields.Updated != nil {
-		updated := time.Time(*issue.Fields.Updated)
-		if p.now().Sub(updated) > p.staleThreshold {
-			staleness = workitem.StalenessStale
-		} else {
-			staleness = workitem.StalenessActive
+	var staleness workitem.StalenessState
+	var status, summary string
+
+	if f := issue.Fields; f != nil {
+		summary = f.Summary
+		if f.Status != nil {
+			status = f.Status.Name
 		}
-	}
-
-	status := ""
-	if issue.Fields != nil && issue.Fields.Status != nil {
-		status = issue.Fields.Status.Name
-	}
-
-	summary := ""
-	if issue.Fields != nil {
-		summary = issue.Fields.Summary
+		if f.Updated != nil {
+			updated := time.Time(*f.Updated)
+			if p.now().Sub(updated) > p.staleThreshold {
+				staleness = workitem.StalenessStale
+			} else {
+				staleness = workitem.StalenessActive
+			}
+		}
 	}
 
 	return workitem.NewWorkItem(
