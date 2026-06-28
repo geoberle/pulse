@@ -19,21 +19,22 @@ import (
 	"github.com/geoberle/pulse/internal/poller"
 	ghpoller "github.com/geoberle/pulse/internal/poller/github"
 	jirapoller "github.com/geoberle/pulse/internal/poller/jira"
+	jsonstore "github.com/geoberle/pulse/internal/store/json"
+	"github.com/geoberle/pulse/internal/workitem"
 )
 
 // RawOptions holds unvalidated CLI flag values. Populated by cobra flag
 // binding before any validation occurs.
 type RawOptions struct {
-	// ConfigFile is the path to the application config YAML.
-	ConfigFile string
-
-	// PromptsFile is the path to the prompt templates YAML.
+	ConfigFile  string
 	PromptsFile string
+	StateFile   string
 }
 
 type validatedOptions struct {
-	Config  *config.Config
-	Prompts *config.Prompts
+	Config    *config.Config
+	Prompts   *config.Prompts
+	StateFile string
 }
 
 // ValidatedOptions wraps validated configuration that has passed all
@@ -47,6 +48,8 @@ type completedOptions struct {
 	Config  *config.Config
 	Prompts *config.Prompts
 	Pollers []poller.Poller
+	Store   informer.Store
+	Initial []*workitem.WorkItem
 	User    string
 	PollDur time.Duration
 }
@@ -68,9 +71,14 @@ func DefaultOptions() (*RawOptions, error) {
 	if err != nil {
 		return nil, err
 	}
+	statePath, err := config.DefaultStatePath()
+	if err != nil {
+		return nil, err
+	}
 	return &RawOptions{
 		ConfigFile:  cfgPath,
 		PromptsFile: promptsPath,
+		StateFile:   statePath,
 	}, nil
 }
 
@@ -78,6 +86,7 @@ func DefaultOptions() (*RawOptions, error) {
 func (o *RawOptions) BindFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.ConfigFile, "config-file", o.ConfigFile, "Path to config file")
 	cmd.Flags().StringVar(&o.PromptsFile, "prompts-file", o.PromptsFile, "Path to prompts file")
+	cmd.Flags().StringVar(&o.StateFile, "state-file", o.StateFile, "Path to state file")
 }
 
 // Validate loads config and prompts from disk and checks all structural
@@ -102,8 +111,9 @@ func (o *RawOptions) Validate() (*ValidatedOptions, error) {
 
 	return &ValidatedOptions{
 		validatedOptions: validatedOptions{
-			Config:  cfg,
-			Prompts: prompts,
+			Config:    cfg,
+			Prompts:   prompts,
+			StateFile: o.StateFile,
 		},
 	}, nil
 }
@@ -138,11 +148,23 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 	jiraClient.Auth.SetBasicAuth(o.Config.Jira.Email, o.Config.Jira.Token)
 	jiraPoll := jirapoller.NewPoller(jiraClient.Issue.Search, o.Config.JiraProject, staleDur)
 
+	log := newLogger()
+	store, err := jsonstore.New(o.StateFile, log.WithName("store"))
+	if err != nil {
+		return nil, fmt.Errorf("state store: %w", err)
+	}
+	initial, err := store.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load state: %w", err)
+	}
+
 	return &Options{
 		completedOptions: completedOptions{
 			Config:  o.Config,
 			Prompts: o.Prompts,
 			Pollers: []poller.Poller{ghPoll, jiraPoll},
+			Store:   store,
+			Initial: initial,
 			User:    ghUser,
 			PollDur: pollDur,
 		},
@@ -152,14 +174,18 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 // Run executes the main application loop.
 func (o *Options) Run(ctx context.Context) error {
 	log := newLogger()
-	// 5x poll: frequent enough for stale-item detection, rare enough to avoid per-tick full-cache churn
 	relistDur := 5 * o.PollDur
 
 	eng := engine.New(log.WithName("engine"), o.Pollers)
-	inf := informer.New(log.WithName("informer"), eng, o.PollDur, relistDur)
+	inf := informer.New(log.WithName("informer"), eng, informer.Options{
+		Store:          o.Store,
+		Initial:        o.Initial,
+		PollInterval:   o.PollDur,
+		RelistInterval: relistDur,
+	})
 	inf.RegisterHandler(loghandler.NewHandler(log.WithName("event")))
 
-	log.Info("starting", "poll_interval", o.PollDur, "repos", o.Config.Repos, "user", o.User)
+	log.Info("starting", "poll_interval", o.PollDur, "repos", o.Config.Repos, "user", o.User, "initial_items", len(o.Initial))
 	inf.Run(ctx)
 	return nil
 }

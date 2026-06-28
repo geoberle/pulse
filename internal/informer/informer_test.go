@@ -3,6 +3,7 @@ package informer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -89,7 +90,7 @@ func TestPoll_DispatchesAddedEvents(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(logr.Discard(), src, time.Hour, time.Hour)
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
@@ -107,7 +108,7 @@ func TestPoll_DispatchesAddedEvents(t *testing.T) {
 func TestPoll_SetsSynced(t *testing.T) {
 	t.Parallel()
 	src := &staticSource{items: nil}
-	inf := New(logr.Discard(), src, time.Hour, time.Hour)
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
 
 	if inf.HasSynced() {
 		t.Fatal("expected HasSynced=false before poll")
@@ -128,7 +129,7 @@ func TestPoll_NoEventsOnUnchangedData(t *testing.T) {
 		Spec:       json.RawMessage(`{"key":"ARO-1"}`),
 	}
 	src := &staticSource{items: []*workitem.WorkItem{item}}
-	inf := New(logr.Discard(), src, time.Hour, time.Hour)
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
@@ -157,7 +158,7 @@ func TestRelist_DeliversAllItemsAsUpdated(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(logr.Discard(), src, time.Hour, time.Hour)
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
@@ -187,7 +188,7 @@ func TestPoll_DispatchesToMultipleHandlers(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(logr.Discard(), src, time.Hour, time.Hour)
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
 	h1 := &recordingHandler{}
 	h2 := &recordingHandler{}
 	inf.RegisterHandler(h1)
@@ -211,7 +212,7 @@ func TestPoll_DeleteEvent(t *testing.T) {
 		Spec:       json.RawMessage(`{"key":"ARO-1"}`),
 	}
 	src := &staticSource{items: []*workitem.WorkItem{item}}
-	inf := New(logr.Discard(), src, time.Hour, time.Hour)
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
@@ -233,7 +234,7 @@ func TestPoll_DeleteEvent(t *testing.T) {
 	}
 }
 
-func TestCache_ReturnsCurrentState(t *testing.T) {
+func TestList_ReturnsCurrentState(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
@@ -243,19 +244,19 @@ func TestCache_ReturnsCurrentState(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(logr.Discard(), src, time.Hour, time.Hour)
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
 
-	if len(inf.Cache()) != 0 {
-		t.Fatalf("expected empty cache before poll, got %d", len(inf.Cache()))
+	if len(inf.List()) != 0 {
+		t.Fatalf("expected empty cache before poll, got %d", len(inf.List()))
 	}
 
 	inf.poll(context.Background())
 
-	if len(inf.Cache()) != 1 {
-		t.Fatalf("expected 1 cached item, got %d", len(inf.Cache()))
+	if len(inf.List()) != 1 {
+		t.Fatalf("expected 1 cached item, got %d", len(inf.List()))
 	}
-	if inf.Cache()[0].ID != "jira:ARO-1" {
-		t.Errorf("expected cached ID jira:ARO-1, got %s", inf.Cache()[0].ID)
+	if inf.List()[0].ID != "jira:ARO-1" {
+		t.Errorf("expected cached ID jira:ARO-1, got %s", inf.List()[0].ID)
 	}
 }
 
@@ -276,7 +277,7 @@ func TestRelist_IncludesChildren(t *testing.T) {
 		},
 	}
 	src := &staticSource{items: items}
-	inf := New(logr.Discard(), src, time.Hour, time.Hour)
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
 	h := &recordingHandler{}
 	inf.RegisterHandler(h)
 
@@ -293,5 +294,168 @@ func TestRelist_IncludesChildren(t *testing.T) {
 	}
 	if updatedCount != 2 {
 		t.Errorf("expected 2 Updated events from relist (parent+child), got %d", updatedCount)
+	}
+}
+
+type sequenceStore struct {
+	mu       sync.Mutex
+	saved    []*workitem.WorkItem
+	sequence *[]string
+}
+
+func (s *sequenceStore) Save(items []*workitem.WorkItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.saved = items
+	*s.sequence = append(*s.sequence, "save")
+	return nil
+}
+
+func (s *sequenceStore) Load() ([]*workitem.WorkItem, error) {
+	return nil, nil
+}
+
+func (s *sequenceStore) getSaved() []*workitem.WorkItem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make([]*workitem.WorkItem, len(s.saved))
+	copy(cp, s.saved)
+	return cp
+}
+
+type sequenceHandler struct {
+	sequence *[]string
+}
+
+func (h *sequenceHandler) OnEvent(_ Event) {
+	*h.sequence = append(*h.sequence, "dispatch")
+}
+
+type failingStore struct{}
+
+func (s *failingStore) Save(_ []*workitem.WorkItem) error {
+	return fmt.Errorf("disk full")
+}
+
+func (s *failingStore) Load() ([]*workitem.WorkItem, error) {
+	return nil, nil
+}
+
+func TestPoll_PersistsBeforeDispatch(t *testing.T) {
+	t.Parallel()
+	items := []*workitem.WorkItem{
+		{
+			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+		},
+	}
+	src := &staticSource{items: items}
+	var sequence []string
+	store := &sequenceStore{sequence: &sequence}
+	inf := New(logr.Discard(), src, Options{Store: store, PollInterval: time.Hour, RelistInterval: time.Hour})
+	inf.RegisterHandler(&sequenceHandler{sequence: &sequence})
+
+	inf.poll(context.Background())
+
+	saved := store.getSaved()
+	if len(saved) != 1 {
+		t.Fatalf("expected store to have 1 item, got %d", len(saved))
+	}
+	if saved[0].ID != "jira:ARO-1" {
+		t.Errorf("saved ID = %s, want jira:ARO-1", saved[0].ID)
+	}
+	if len(sequence) != 2 || sequence[0] != "save" || sequence[1] != "dispatch" {
+		t.Errorf("expected [save, dispatch], got %v", sequence)
+	}
+}
+
+func TestPoll_StoreFailureDoesNotBlockDispatch(t *testing.T) {
+	t.Parallel()
+	items := []*workitem.WorkItem{
+		{
+			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+		},
+	}
+	src := &staticSource{items: items}
+	inf := New(logr.Discard(), src, Options{Store: &failingStore{}, PollInterval: time.Hour, RelistInterval: time.Hour})
+	h := &recordingHandler{}
+	inf.RegisterHandler(h)
+
+	inf.poll(context.Background())
+
+	events := h.getEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event despite store failure, got %d", len(events))
+	}
+}
+
+func TestNew_InitialCacheSeedsDiff(t *testing.T) {
+	t.Parallel()
+	initial := []*workitem.WorkItem{
+		{
+			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+		},
+	}
+	src := &staticSource{items: initial}
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour, Initial: initial})
+	h := &recordingHandler{}
+	inf.RegisterHandler(h)
+
+	if !inf.HasSynced() {
+		t.Fatal("expected HasSynced=true with initial cache")
+	}
+
+	inf.poll(context.Background())
+
+	events := h.getEvents()
+	if len(events) != 0 {
+		t.Fatalf("expected 0 events when poll returns same data as initial, got %d", len(events))
+	}
+}
+
+func TestNew_InitialCacheAvailableViaList(t *testing.T) {
+	t.Parallel()
+	initial := []*workitem.WorkItem{
+		{
+			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+		},
+	}
+	inf := New(logr.Discard(), &staticSource{}, Options{PollInterval: time.Hour, RelistInterval: time.Hour, Initial: initial})
+
+	listed := inf.List()
+	if len(listed) != 1 {
+		t.Fatalf("expected 1 item from List() before poll, got %d", len(listed))
+	}
+	if listed[0].ID != "jira:ARO-1" {
+		t.Errorf("List() ID = %s, want jira:ARO-1", listed[0].ID)
+	}
+}
+
+func TestPoll_NilStoreDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	items := []*workitem.WorkItem{
+		{
+			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
+			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
+			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+		},
+	}
+	src := &staticSource{items: items}
+	inf := New(logr.Discard(), src, Options{PollInterval: time.Hour, RelistInterval: time.Hour})
+	h := &recordingHandler{}
+	inf.RegisterHandler(h)
+
+	inf.poll(context.Background())
+
+	events := h.getEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event with nil store, got %d", len(events))
 	}
 }

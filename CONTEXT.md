@@ -7,10 +7,12 @@
 - **Local Work**: A worktree/branch with no PR yet. Detected via `supacode worktree list`. Linked to a Jira issue if the branch name contains a Jira key, otherwise shown as a top-level item.
 - **Action**: Something on a work item or its PRs that needs attention. Examples: failed CI, review comment, needs rebase, stale Jira. Actions have an autonomy tier (propose, judgment).
 - **Autonomy Tier**: How much human involvement an action requires. Propose = tool drafts, user approves inline. Judgment = opens a Supacode split with Claude. Auto tier designed but not enabled in v1 — all actions require user involvement.
-- **Informer**: Central component that holds the canonical WorkItem tree, diffs against previous state on each poll, and fires OnAdd/OnUpdate/OnDelete events to registered handlers. K8s SharedInformer-style.
+- **Informer**: Central component that holds the canonical WorkItem tree in cache, persists it to disk via an injected Store, diffs against previous state on each poll, and dispatches events to registered handlers. Persistence happens after cache update but before event dispatch — on successful Save, disk matches cache when handlers fire. Save failures are non-fatal (logged, dispatch continues). K8s SharedInformer-style.
+- **Store**: Injected persistence backend for the informer. Responsible for Save (atomic write of full tree) and Load (seed cache on startup). JSON file implementation writes to `~/.local/state/pulse/state.json` via tmp + rename.
+- **Lister**: Read-only interface to the informer's cache. Exposes `List() []*WorkItem`. Handlers that need the full tree (TUI, future reconcilers) take a Lister in their constructor. Follows the K8s lister pattern — separate from event delivery.
 - **Engine**: Orchestrator that owns the poll loop, calls pollers, assembles the tree from flat poller results, and feeds the informer. Also owns the split-close watcher.
 - **Poller**: Source-specific data fetcher. Returns flat list of WorkItems. Engine assembles them into the tree.
-- **Handler**: Consumer registered with the informer. Receives events and performs side effects (TUI rendering, state persistence, LLM summarization, split lifecycle).
+- **Handler**: Consumer registered with the informer. Receives events and performs side effects (TUI rendering, LLM summarization, split lifecycle). Handlers that need full tree state use a Lister, not the event payload.
 
 ## Decisions
 
@@ -65,8 +67,9 @@
 
 ### Architecture
 
-- Informer pattern: pollers → engine (assembles tree) → informer (diffs, dispatches events) → handlers. See ADR-0001.
-- Handlers: TUI (channel → bubbletea Cmd), State (persists state.json), Summarizer (LLM on new/changed reviews), Split watcher (prunes dead splits on delete).
+- Informer pattern: pollers → engine (assembles tree) → informer (diffs, persists, dispatches events) → handlers. Persistence is informer infrastructure, not a handler. See ADR-0001, ADR-0004.
+- Informer poll cycle: source.List() → diffTrees() → update cache → store.Save() → dispatch events. Cache is updated and persisted before handlers fire.
+- Handlers: TUI (channel → bubbletea Cmd), Summarizer (LLM on new/changed reviews), Split watcher (prunes dead splits on delete). Handlers that need full tree take a Lister.
 - Pollers return flat lists, engine assembles tree (PR-to-Jira matching by regex, orphan detection, local work grouping).
 - Partial poll failure → use succeeded sources, show error indicator for failed ones.
 - Informer diff: hash of Kind + ID + Label + Status + Spec bytes. Children diffed separately (recursive). No event bubbling from child to parent.
@@ -91,8 +94,11 @@
 ### Storage
 
 - Config: `~/.config/pulse/config.yaml` + `prompts.yaml`. XDG-compliant.
-- State: `~/.local/state/pulse/state.json`. Entire WorkItem tree persisted on every poll. Written atomically (tmp + rename).
-- State includes: comment summary cache (by comment ID + body hash), split-to-action mappings (pruned on startup against `supacode surface list`).
+- State: `~/.local/state/pulse/state.json`. Entire WorkItem tree persisted by the informer's Store after each cache update, before event dispatch. Written atomically (tmp + rename). Comment summaries and split surface IDs are fields on WorkItem specs (ReviewSpec.Summary, PRSpec.SplitSurfaceID), not separate state. See ADR-0004.
+- Store is injected into the informer. JSON file implementation takes a full path — XDG resolution happens in `options.go` (Complete phase). Constructor creates the directory via `MkdirAll`, failing fast at startup if permissions are wrong.
+- Save failures are non-fatal: log error, continue dispatching. State is a cache, pollers hold ground truth.
+- Load failures are tolerant: missing file → empty tree. Corrupt file → log warning, empty tree. Partial unmarshal failures → drop bad items, load rest. Never refuse to start over bad state.
+- On startup: caller calls `store.Load()`, passes result as initial cache to `informer.New()`. First poll diffs against loaded state → only true changes produce events. TUI can read the Lister immediately for instant render before first network call.
 - In-memory cache: PR data, Jira data, worktree list. Rebuilt every poll cycle.
 
 ### Testing

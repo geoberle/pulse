@@ -16,8 +16,11 @@ type Source interface {
 	List(ctx context.Context) ([]*workitem.WorkItem, error)
 }
 
+var _ Lister = (*Informer)(nil)
+
 type Informer struct {
 	source         Source
+	store          Store
 	pollInterval   time.Duration
 	relistInterval time.Duration
 	cache          []*workitem.WorkItem
@@ -26,13 +29,26 @@ type Informer struct {
 	log            logr.Logger
 }
 
-func New(log logr.Logger, source Source, pollInterval, relistInterval time.Duration) *Informer {
-	return &Informer{
+type Options struct {
+	Store          Store
+	Initial        []*workitem.WorkItem
+	PollInterval   time.Duration
+	RelistInterval time.Duration
+}
+
+func New(log logr.Logger, source Source, opts Options) *Informer {
+	inf := &Informer{
 		log:            log,
 		source:         source,
-		pollInterval:   pollInterval,
-		relistInterval: relistInterval,
+		store:          opts.Store,
+		pollInterval:   opts.PollInterval,
+		relistInterval: opts.RelistInterval,
+		cache:          opts.Initial,
 	}
+	if len(opts.Initial) > 0 {
+		inf.synced.Store(true)
+	}
+	return inf
 }
 
 // RegisterHandler adds a handler. Must be called before Run.
@@ -71,6 +87,11 @@ func (inf *Informer) poll(ctx context.Context) {
 	events := diffTrees(inf.cache, items, nil)
 	inf.cache = items
 	inf.synced.Store(true)
+	if inf.store != nil {
+		if err := inf.store.Save(items); err != nil {
+			inf.log.Error(err, "failed to persist state")
+		}
+	}
 	inf.dispatch(events)
 }
 
@@ -101,8 +122,9 @@ func (inf *Informer) HasSynced() bool {
 	return inf.synced.Load()
 }
 
-// Cache returns the current cached items. The returned slice and its elements
-// must not be mutated. Must not be called concurrently with Run.
-func (inf *Informer) Cache() []*workitem.WorkItem {
+// List returns the current cached items, satisfying the Lister interface.
+// The returned slice and its elements must not be mutated. Must not be
+// called concurrently with Run.
+func (inf *Informer) List() []*workitem.WorkItem {
 	return inf.cache
 }

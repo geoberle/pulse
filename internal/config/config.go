@@ -230,3 +230,22 @@ func defaultConfigDir() (string, error) {
 	}
 	return filepath.Join(home, ".config", "pulse"), nil
 }
+
+func DefaultStatePath() (string, error) {
+	dir, err := defaultStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "state.json"), nil
+}
+
+func defaultStateDir() (string, error) {
+	if xdg := os.Getenv("XDG_STATE_HOME"); len(xdg) != 0 {
+		return filepath.Join(xdg, "pulse"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determine home directory: %w", err)
+	}
+	return filepath.Join(home, ".local", "state", "pulse"), nil
+}
