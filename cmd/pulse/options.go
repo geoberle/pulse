@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	jira "github.com/ctreminiom/go-atlassian/v2/jira/v2"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	gogithub "github.com/google/go-github/v72/github"
@@ -17,6 +18,7 @@ import (
 	"github.com/geoberle/pulse/internal/informer"
 	"github.com/geoberle/pulse/internal/poller"
 	ghpoller "github.com/geoberle/pulse/internal/poller/github"
+	jirapoller "github.com/geoberle/pulse/internal/poller/jira"
 )
 
 // RawOptions holds unvalidated CLI flag values. Populated by cobra flag
@@ -112,6 +114,10 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 	if err != nil {
 		return nil, fmt.Errorf("poll interval: %w", err)
 	}
+	staleDur, err := o.Config.StaleDuration()
+	if err != nil {
+		return nil, fmt.Errorf("stale threshold: %w", err)
+	}
 
 	ghToken, err := ghpoller.Token(ctx)
 	if err != nil {
@@ -125,11 +131,18 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 	ghClient := gogithub.NewClient(nil).WithAuthToken(ghToken)
 	ghPoll := ghpoller.NewPoller(ghClient.PullRequests, ghClient.Checks, o.Config.Repos, ghUser)
 
+	jiraClient, err := jira.New(nil, o.Config.Jira.Host)
+	if err != nil {
+		return nil, fmt.Errorf("jira client: %w", err)
+	}
+	jiraClient.Auth.SetBasicAuth(o.Config.Jira.Email, o.Config.Jira.Token)
+	jiraPoll := jirapoller.NewPoller(jiraClient.Issue.Search, o.Config.JiraProject, staleDur)
+
 	return &Options{
 		completedOptions: completedOptions{
 			Config:  o.Config,
 			Prompts: o.Prompts,
-			Pollers: []poller.Poller{ghPoll},
+			Pollers: []poller.Poller{ghPoll, jiraPoll},
 			User:    ghUser,
 			PollDur: pollDur,
 		},

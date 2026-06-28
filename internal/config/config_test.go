@@ -153,7 +153,7 @@ func TestValidate(t *testing.T) {
 	t.Parallel()
 	validCfg := func() Config {
 		return Config{
-			Jira:           JiraConfig{Host: "https://example.atlassian.net"},
+			Jira:           JiraConfig{Host: "https://example.atlassian.net", Email: "test@example.com", Token: "test-token"},
 			Repos:          []string{"org/repo"},
 			JiraProject:    "PROJ",
 			StaleThreshold: "120h",
@@ -202,6 +202,24 @@ func TestValidate(t *testing.T) {
 			cfg: func() Config {
 				c := validCfg()
 				c.JiraProject = strings.Repeat("A", 101)
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid jira_project format",
+			cfg: func() Config {
+				c := validCfg()
+				c.JiraProject = "bad project"
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "lowercase jira_project",
+			cfg: func() Config {
+				c := validCfg()
+				c.JiraProject = "aro"
 				return c
 			}(),
 			wantErr: true,
@@ -335,6 +353,24 @@ func TestValidate(t *testing.T) {
 				c.LLM = LLMConfig{}
 				return c
 			}(),
+		},
+		{
+			name: "missing jira email",
+			cfg: func() Config {
+				c := validCfg()
+				c.Jira.Email = ""
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "missing jira token",
+			cfg: func() Config {
+				c := validCfg()
+				c.Jira.Token = ""
+				return c
+			}(),
+			wantErr: true,
 		},
 		{
 			name: "jira host too long",

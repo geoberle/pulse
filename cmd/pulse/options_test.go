@@ -9,7 +9,7 @@ import (
 func TestValidate(t *testing.T) {
 	t.Parallel()
 
-	validConfig := "jira:\n  host: https://example.atlassian.net\nrepos:\n  - Azure/ARO-HCP\njira_project: ARO\n"
+	validConfig := "jira:\n  host: https://example.atlassian.net\n  email: test@example.com\n  token: test-token\nrepos:\n  - Azure/ARO-HCP\njira_project: ARO\n"
 	validPrompts := "review_comment: test\nrebase: test\njira_update: test\njira_create: test\nci_failure: test\n"
 
 	tests := []struct {
