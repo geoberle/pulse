@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	models "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
+	"github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
 
 	"github.com/geoberle/pulse/internal/workitem"
 )
@@ -212,6 +212,63 @@ func TestPoll(t *testing.T) {
 			},
 		},
 		{
+			name: "nil fields produces empty summary and status",
+			searcher: &mockSearcher{searchFn: func(_ context.Context, _ string, _, _ []string, _ int, _ string) (*models.IssueSearchJQLSchemeV2, *models.ResponseScheme, error) {
+				return &models.IssueSearchJQLSchemeV2{
+					Issues: []*models.IssueSchemeV2{
+						{Key: "ARO-400"},
+					},
+				}, nil, nil
+			}},
+			wantItems: 1,
+			validate: func(t *testing.T, items []*workitem.WorkItem) {
+				t.Helper()
+				if items[0].Label != "" {
+					t.Errorf("Label = %q, want empty", items[0].Label)
+				}
+				if items[0].Status != "" {
+					t.Errorf("Status = %q, want empty", items[0].Status)
+				}
+				spec := items[0].ParsedSpec.(*workitem.JiraSpec)
+				if spec.Staleness != workitem.StalenessUnknown {
+					t.Errorf("Staleness = %q, want %q", spec.Staleness, workitem.StalenessUnknown)
+				}
+			},
+		},
+		{
+			name: "nil status within non-nil fields",
+			searcher: &mockSearcher{searchFn: func(_ context.Context, _ string, _, _ []string, _ int, _ string) (*models.IssueSearchJQLSchemeV2, *models.ResponseScheme, error) {
+				return &models.IssueSearchJQLSchemeV2{
+					Issues: []*models.IssueSchemeV2{
+						{
+							Key: "ARO-500",
+							Fields: &models.IssueFieldsSchemeV2{
+								Summary: "has summary",
+								Updated: dateTime(fixedNow),
+							},
+						},
+					},
+				}, nil, nil
+			}},
+			wantItems: 1,
+			validate: func(t *testing.T, items []*workitem.WorkItem) {
+				t.Helper()
+				if items[0].Label != "has summary" {
+					t.Errorf("Label = %q, want %q", items[0].Label, "has summary")
+				}
+				if items[0].Status != "" {
+					t.Errorf("Status = %q, want empty", items[0].Status)
+				}
+			},
+		},
+		{
+			name: "api error with nil response",
+			searcher: &mockSearcher{searchFn: func(_ context.Context, _ string, _, _ []string, _ int, _ string) (*models.IssueSearchJQLSchemeV2, *models.ResponseScheme, error) {
+				return nil, nil, fmt.Errorf("connection refused")
+			}},
+			wantErr: true,
+		},
+		{
 			name:    "uses correct JQL with project",
 			project: "MYPROJ",
 			searcher: &mockSearcher{searchFn: func(_ context.Context, jql string, _, _ []string, _ int, _ string) (*models.IssueSearchJQLSchemeV2, *models.ResponseScheme, error) {
@@ -227,6 +284,7 @@ func TestPoll(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			project := tt.project
 			if len(project) == 0 {
 				project = "ARO"

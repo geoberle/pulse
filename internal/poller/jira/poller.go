@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	models "github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
+	"github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
 
 	"github.com/geoberle/pulse/internal/poller"
 	"github.com/geoberle/pulse/internal/workitem"
