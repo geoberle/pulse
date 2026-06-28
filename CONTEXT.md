@@ -7,12 +7,12 @@
 - **Local Work**: A worktree/branch with no PR yet. Detected via `supacode worktree list`. Linked to a Jira issue if the branch name contains a Jira key, otherwise shown as a top-level item.
 - **Action**: Something on a work item or its PRs that needs attention. Examples: failed CI, review comment, needs rebase, stale Jira. Actions have an autonomy tier (propose, judgment).
 - **Autonomy Tier**: How much human involvement an action requires. Propose = tool drafts, user approves inline. Judgment = opens a Supacode split with Claude. Auto tier designed but not enabled in v1 — all actions require user involvement.
-- **Informer**: Central component that holds the canonical WorkItem tree in cache, persists it to disk via an injected Store, diffs against previous state on each poll, and dispatches events to registered handlers. Persistence happens after cache update but before event dispatch — on successful Save, disk matches cache when handlers fire. Save failures are non-fatal (logged, dispatch continues). K8s SharedInformer-style.
-- **Store**: Injected persistence backend for the informer. Responsible for Save (atomic write of full tree) and Load (seed cache on startup). JSON file implementation writes to `~/.local/state/pulse/state.json` via tmp + rename.
-- **Lister**: Read-only interface to the informer's cache. Exposes `List() []*WorkItem`. Handlers that need the full tree (TUI, future reconcilers) take a Lister in their constructor. Follows the K8s lister pattern — separate from event delivery.
-- **Engine**: Orchestrator that owns the poll loop, calls pollers, assembles the tree from flat poller results, and feeds the informer. Also owns the split-close watcher.
+- **Informer**: A `cache.SharedIndexInformer` from client-go that polls the Source via a ListWatch adapter. The Source returns a tree; the ListFunc flattens it (setting ParentID, stripping Children) before the informer stores items. An ExpiringWatcher sends HTTP 410 Gone after pollInterval, triggering the reflector to relist. Items are indexed by `ByParent` and `ByKind` for tree reconstruction and filtering. Handlers register via `AddEventHandler(cache.ResourceEventHandlerFuncs{...})`. Prepared for workqueue-based controllers.
+- **Store**: Standalone persistence backend for periodic snapshots. Save writes the full WorkItem tree (reconstructed from flat items via BuildTree) atomically to `~/.local/state/pulse/state.json` via tmp + rename. Load returns the tree for TUI instant startup. Persistence is decoupled from the informer poll cycle — snapshots happen periodically, not synchronously with event dispatch.
+- **Lister**: Read-only interface wrapping `cache.Indexer`. Provides `List()`, `Get(id)`, and `ByIndex(indexName, key)`. Tree reconstruction uses `ByIndex(ByParent, parentID)` to find children on demand. Follows the K8s lister pattern.
+- **Engine**: Orchestrator that calls pollers and assembles the tree from flat poller results. Implements `informer.Source` (the `List(ctx)` method). Poll scheduling is handled by the informer's reflector, not the engine.
 - **Poller**: Source-specific data fetcher. Returns flat list of WorkItems. Engine assembles them into the tree.
-- **Handler**: Consumer registered with the informer. Receives events and performs side effects (TUI rendering, LLM summarization, split lifecycle). Handlers that need full tree state use a Lister, not the event payload.
+- **Controller**: Consumer registered with the informer via `AddEventHandler`. Receives `OnAdd`/`OnUpdate`/`OnDelete` callbacks. For workqueue-based controllers, handlers enqueue item keys; workers dequeue and process via the Lister. Replaces the previous Handler pattern.
 
 ## Decisions
 
@@ -28,7 +28,7 @@
 
 ### Data Model
 
-- Unified WorkItem model: common metadata (TypeMeta + ObjectMeta) with type-specific `Spec` as `json.RawMessage`, dispatched to typed structs on unmarshal. K8s-style pattern. Recursive via `Children []*WorkItem`. See ADR-0002.
+- Unified WorkItem model: common metadata (TypeMeta + ObjectMeta) with type-specific `Spec` as `json.RawMessage`, dispatched to typed structs on unmarshal. Implements `runtime.Object` and `metav1.ObjectMetaAccessor` for client-go informer compatibility. In the informer cache, items are stored flat with `ParentID` referencing the parent's ID; `Children` is used by Source/Engine for tree assembly and by Store for tree-shaped persistence. Tree reconstruction from flat items uses `ByParent` indexer or `BuildTree()`. See ADR-0002.
 - Kinds: `jira`, `pr`, `check`, `review`, `local`. `Kind` is a typed `string` enum with `Validate()`, not a bare string.
 - All domain enums (`Kind`, `StalenessState`, `BranchState`) follow the same pattern: typed string, constants with zero-value = unknown/unset, `Validate()` method that guards against invalid values.
 - All Spec types validate required fields on unmarshal (e.g. `JiraSpec.Key`, `PRSpec.Repo/Number/Branch`).
@@ -67,13 +67,12 @@
 
 ### Architecture
 
-- Informer pattern: pollers → engine (assembles tree) → informer (diffs, persists, dispatches events) → handlers. Persistence is informer infrastructure, not a handler. See ADR-0001, ADR-0004.
-- Informer poll cycle: source.List() → diffTrees() → update cache → store.Save() → dispatch events. Cache is updated and persisted before handlers fire.
-- Handlers: TUI (channel → bubbletea Cmd), Summarizer (LLM on new/changed reviews), Split watcher (prunes dead splits on delete). Handlers that need full tree take a Lister.
+- Informer pattern: pollers → engine (assembles tree) → informer (flattens, caches, dispatches events) → controllers. Uses `cache.SharedIndexInformer` from client-go with `ExpiringWatcher` for polling (same pattern as aro-hcp CosmosDB informers). See ADR-0001, ADR-0004.
+- Informer poll cycle: reflector calls ListFunc → Source.List() returns tree → Flatten() → informer replaces cache → fires OnAdd/OnUpdate/OnDelete. Polling driven by ExpiringWatcher (sends 410 Gone after pollInterval). Change detection handled by the informer's DeltaFIFO, not custom diffTrees.
+- Controllers: TUI (channel → bubbletea Cmd), Summarizer (LLM on new/changed reviews), Split watcher (prunes dead splits on delete). Controllers that need tree use Lister.ByIndex(ByParent, ...) to reconstruct.
 - Pollers return flat lists, engine assembles tree (PR-to-Jira matching by regex, orphan detection, local work grouping).
 - Partial poll failure → use succeeded sources, show error indicator for failed ones.
-- Informer diff: hash of Kind + ID + Label + Status + Spec bytes. Children diffed separately (recursive). No event bubbling from child to parent.
-- Engine owns poll loop (5 min interval), split-close watcher goroutine, manual refresh channel.
+- Persistence is decoupled from the informer cycle. A periodic goroutine snapshots the cache to disk via Lister → BuildTree → Store.Save. See ADR-0004.
 - Cobra CLI with RawOptions → ValidatedOptions → CompletedOptions pattern (from ARO-HCP templatize).
 
 ### Config Conventions

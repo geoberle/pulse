@@ -9,11 +9,8 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"github.com/geoberle/pulse/internal/informer"
 	"github.com/geoberle/pulse/internal/workitem"
 )
-
-var _ informer.Store = (*Store)(nil)
 
 type Store struct {
 	path string

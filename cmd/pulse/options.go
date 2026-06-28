@@ -3,14 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	jira "github.com/ctreminiom/go-atlassian/v2/jira/v2"
 	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
 	gogithub "github.com/google/go-github/v72/github"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/geoberle/pulse/internal/config"
 	"github.com/geoberle/pulse/internal/engine"
@@ -47,10 +46,8 @@ type ValidatedOptions struct {
 type completedOptions struct {
 	Config  *config.Config
 	Prompts *config.Prompts
-	Pollers []poller.Poller
-	Store   informer.Store
-	Initial []*workitem.WorkItem
-	User    string
+	Engine  *engine.Engine
+	Store   *jsonstore.Store
 	PollDur time.Duration
 }
 
@@ -148,24 +145,20 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 	jiraClient.Auth.SetBasicAuth(o.Config.Jira.Email, o.Config.Jira.Token)
 	jiraPoll := jirapoller.NewPoller(jiraClient.Issue.Search, o.Config.JiraProject, staleDur)
 
-	log := newLogger()
+	log, _ := logr.FromContext(ctx)
+	eng := engine.New(log.WithName("engine"), []poller.Poller{ghPoll, jiraPoll})
+
 	store, err := jsonstore.New(o.StateFile, log.WithName("store"))
 	if err != nil {
 		return nil, fmt.Errorf("state store: %w", err)
-	}
-	initial, err := store.Load()
-	if err != nil {
-		return nil, fmt.Errorf("load state: %w", err)
 	}
 
 	return &Options{
 		completedOptions: completedOptions{
 			Config:  o.Config,
 			Prompts: o.Prompts,
-			Pollers: []poller.Poller{ghPoll, jiraPoll},
+			Engine:  eng,
 			Store:   store,
-			Initial: initial,
-			User:    ghUser,
 			PollDur: pollDur,
 		},
 	}, nil
@@ -173,29 +166,54 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 
 // Run executes the main application loop.
 func (o *Options) Run(ctx context.Context) error {
-	log := newLogger()
-	relistDur := 5 * o.PollDur
+	log, _ := logr.FromContext(ctx)
 
-	eng := engine.New(log.WithName("engine"), o.Pollers)
-	inf := informer.New(log.WithName("informer"), eng, informer.Options{
-		Store:          o.Store,
-		Initial:        o.Initial,
-		PollInterval:   o.PollDur,
-		RelistInterval: relistDur,
-	})
-	inf.RegisterHandler(loghandler.NewHandler(log.WithName("event")))
+	inf := informer.New(o.Engine, o.PollDur)
+	if _, err := inf.AddEventHandler(loghandler.NewHandler(log.WithName("event"))); err != nil {
+		return fmt.Errorf("add event handler: %w", err)
+	}
 
-	log.Info("starting", "poll_interval", o.PollDur, "repos", o.Config.Repos, "user", o.User, "initial_items", len(o.Initial))
-	inf.Run(ctx)
+	lister := informer.NewLister(inf.GetIndexer())
+
+	stopCh := ctx.Done()
+	go inf.Run(stopCh)
+
+	log.Info("starting", "poll_interval", o.PollDur)
+	if !cache.WaitForCacheSync(stopCh, inf.HasSynced) {
+		return fmt.Errorf("informer sync cancelled")
+	}
+	log.Info("informer synced")
+
+	go o.persistPeriodically(ctx, log, lister)
+
+	<-ctx.Done()
 	return nil
 }
 
-func newLogger() logr.Logger {
-	return funcr.New(func(prefix, args string) {
-		if len(prefix) > 0 {
-			fmt.Fprintf(os.Stderr, "%s %s\n", prefix, args)
-		} else {
-			fmt.Fprintf(os.Stderr, "%s\n", args)
+func (o *Options) persistPeriodically(ctx context.Context, log logr.Logger, lister informer.Lister) {
+	ticker := time.NewTicker(o.PollDur)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			o.persist(log, lister)
 		}
-	}, funcr.Options{Verbosity: 1})
+	}
+}
+
+func (o *Options) persist(log logr.Logger, lister informer.Lister) {
+	if o.Store == nil {
+		return
+	}
+	items, err := lister.List()
+	if err != nil {
+		log.Error(err, "failed to list items for persistence")
+		return
+	}
+	tree := workitem.BuildTree(items)
+	if err := o.Store.Save(tree); err != nil {
+		log.Error(err, "failed to persist state")
+	}
 }

@@ -15,3 +15,7 @@ State persistence (writing the WorkItem tree to disk) is part of the informer's 
 - `Store` is an interface in the informer package, keeping the informer testable without disk I/O. The JSON file implementation lives in a separate package.
 - Startup is seamless: load from disk, diff on first poll, only real changes produce events. The TUI renders instantly from loaded state before the first network call completes.
 - Save failures are logged but don't block event dispatch — state is a cache, pollers hold ground truth.
+
+## Addendum: Decoupled persistence with SharedIndexInformer
+
+After adopting `cache.SharedIndexInformer` from client-go, the tight "persist before dispatch" guarantee relaxed. The SharedIndexInformer manages its own cache and event distribution internally — there is no hook between "cache updated" and "handlers fired" to insert a synchronous Save. Persistence is now a periodic goroutine that snapshots the cache to disk at pollInterval via `Lister → BuildTree → Store.Save`. This is acceptable per our own conclusion above: "Save failures are non-fatal — state is a cache, pollers hold ground truth." The trade-off buys us thread-safe caching, indexing, event distribution, resync, and workqueue readiness from client-go.
