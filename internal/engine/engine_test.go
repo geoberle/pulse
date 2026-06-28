@@ -19,27 +19,6 @@ func (m *mockPoller) Poll(ctx context.Context) ([]*workitem.WorkItem, error) {
 	return m.pollFn(ctx)
 }
 
-func makeItem(kind workitem.Kind, id, label string) *workitem.WorkItem {
-	var spec workitem.Spec
-	switch kind {
-	case workitem.KindPR:
-		spec = &workitem.PRSpec{Repo: "test/repo", Number: 1, Branch: "main"}
-	case workitem.KindCheck:
-		spec = &workitem.CheckSpec{Name: label}
-	case workitem.KindReview:
-		spec = &workitem.ReviewSpec{File: "test.go"}
-	case workitem.KindJira:
-		spec = &workitem.JiraSpec{Key: "ARO-1"}
-	case workitem.KindLocal:
-		spec = &workitem.LocalSpec{WorktreeID: "wt-1", Branch: "main"}
-	}
-	item, err := workitem.NewWorkItem(kind, id, label, "open", spec)
-	if err != nil {
-		panic(fmt.Sprintf("makeItem(%q, %q): %v", kind, id, err))
-	}
-	return item
-}
-
 func mockPollerFn(fn func(ctx context.Context) ([]*workitem.WorkItem, error)) poller.Poller {
 	return &mockPoller{pollFn: fn}
 }
@@ -50,7 +29,6 @@ func TestList(t *testing.T) {
 		pollers   []poller.Poller
 		wantItems int
 		wantErr   bool
-		wantErrs  int
 		validate  func(t *testing.T, items []*workitem.WorkItem)
 	}{
 		{
@@ -58,8 +36,8 @@ func TestList(t *testing.T) {
 			pollers: []poller.Poller{
 				mockPollerFn(func(_ context.Context) ([]*workitem.WorkItem, error) {
 					return []*workitem.WorkItem{
-						makeItem(workitem.KindPR, "pr:test/repo:1", "fix bug"),
-						makeItem(workitem.KindPR, "pr:test/repo:2", "add feature"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:test/repo:1", "fix bug"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:test/repo:2", "add feature"),
 					}, nil
 				}),
 			},
@@ -70,12 +48,12 @@ func TestList(t *testing.T) {
 			pollers: []poller.Poller{
 				mockPollerFn(func(_ context.Context) ([]*workitem.WorkItem, error) {
 					return []*workitem.WorkItem{
-						makeItem(workitem.KindPR, "pr:repo-a/x:1", "PR from A"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:repo-a/x:1", "PR from A"),
 					}, nil
 				}),
 				mockPollerFn(func(_ context.Context) ([]*workitem.WorkItem, error) {
 					return []*workitem.WorkItem{
-						makeItem(workitem.KindPR, "pr:repo-b/x:1", "PR from B"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:repo-b/x:1", "PR from B"),
 					}, nil
 				}),
 			},
@@ -98,12 +76,11 @@ func TestList(t *testing.T) {
 				}),
 				mockPollerFn(func(_ context.Context) ([]*workitem.WorkItem, error) {
 					return []*workitem.WorkItem{
-						makeItem(workitem.KindPR, "pr:repo-b/x:1", "still works"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:repo-b/x:1", "still works"),
 					}, nil
 				}),
 			},
 			wantItems: 1,
-			wantErrs:  1,
 		},
 		{
 			name: "all pollers fail returns error",
@@ -115,8 +92,7 @@ func TestList(t *testing.T) {
 					return nil, fmt.Errorf("error 2")
 				}),
 			},
-			wantErr:  true,
-			wantErrs: 2,
+			wantErr: true,
 		},
 		{
 			name:      "no pollers returns empty",
@@ -148,13 +124,6 @@ func TestList(t *testing.T) {
 				}
 				if len(items) != tt.wantItems {
 					t.Fatalf("items = %d, want %d", len(items), tt.wantItems)
-				}
-			}
-
-			if tt.wantErrs > 0 {
-				errs := e.Errors()
-				if len(errs) != tt.wantErrs {
-					t.Errorf("errors = %d, want %d", len(errs), tt.wantErrs)
 				}
 			}
 

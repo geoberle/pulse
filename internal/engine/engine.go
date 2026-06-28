@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/go-logr/logr"
 
@@ -15,10 +14,8 @@ import (
 var _ informer.Source = (*Engine)(nil)
 
 type Engine struct {
-	pollers    []poller.Poller
-	log        logr.Logger
-	mu         sync.Mutex
-	lastErrors []error
+	pollers []poller.Poller
+	log     logr.Logger
 }
 
 func New(log logr.Logger, pollers []poller.Poller) *Engine {
@@ -42,20 +39,9 @@ func (e *Engine) List(ctx context.Context) ([]*workitem.WorkItem, error) {
 		allItems = append(allItems, items...)
 	}
 
-	e.mu.Lock()
-	e.lastErrors = errs
-	e.mu.Unlock()
-
 	if len(allItems) == 0 && len(errs) > 0 {
 		return nil, fmt.Errorf("all pollers failed: %d errors", len(errs))
 	}
 
-	return merge(allItems), nil
-}
-
-// Errors returns errors from the last List call. Safe for concurrent use.
-func (e *Engine) Errors() []error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.lastErrors
+	return allItems, nil
 }

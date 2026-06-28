@@ -108,11 +108,7 @@ func TestValidate_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	completed, err := validated.Complete()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if completed.Config.JiraProject != "ARO" {
-		t.Errorf("expected jira_project ARO, got %s", completed.Config.JiraProject)
+	if validated.Config.JiraProject != "ARO" {
+		t.Errorf("expected jira_project ARO, got %s", validated.Config.JiraProject)
 	}
 }

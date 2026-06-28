@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
@@ -43,6 +44,9 @@ type ValidatedOptions struct {
 type completedOptions struct {
 	Config  *config.Config
 	Prompts *config.Prompts
+	Pollers []poller.Poller
+	User    string
+	PollDur time.Duration
 }
 
 // Options holds fully completed configuration ready for execution.
@@ -102,14 +106,32 @@ func (o *RawOptions) Validate() (*ValidatedOptions, error) {
 	}, nil
 }
 
-// Complete finalizes options for execution. Currently a passthrough —
-// client construction (Jira, GitHub, LLM) will be added here when
-// those integrations are implemented.
-func (o *ValidatedOptions) Complete() (*Options, error) {
+// Complete constructs external clients and finalizes options for execution.
+func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
+	pollDur, err := o.Config.PollDuration()
+	if err != nil {
+		return nil, fmt.Errorf("poll interval: %w", err)
+	}
+
+	ghToken, err := ghpoller.Token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("github auth: %w", err)
+	}
+	ghUser, err := ghpoller.User(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("github user: %w", err)
+	}
+
+	ghClient := gogithub.NewClient(nil).WithAuthToken(ghToken)
+	ghPoll := ghpoller.NewPoller(ghClient.PullRequests, ghClient.Checks, o.Config.Repos, ghUser)
+
 	return &Options{
 		completedOptions: completedOptions{
 			Config:  o.Config,
 			Prompts: o.Prompts,
+			Pollers: []poller.Poller{ghPoll},
+			User:    ghUser,
+			PollDur: pollDur,
 		},
 	}, nil
 }
@@ -117,30 +139,14 @@ func (o *ValidatedOptions) Complete() (*Options, error) {
 // Run executes the main application loop.
 func (o *Options) Run(ctx context.Context) error {
 	log := newLogger()
+	// 5x poll: frequent enough for stale-item detection, rare enough to avoid per-tick full-cache churn
+	relistDur := 5 * o.PollDur
 
-	pollDur, err := o.Config.PollDuration()
-	if err != nil {
-		return fmt.Errorf("poll interval: %w", err)
-	}
-	relistDur := 5 * pollDur
-
-	ghToken, err := ghpoller.Token(ctx)
-	if err != nil {
-		return fmt.Errorf("github auth: %w", err)
-	}
-	ghUser, err := ghpoller.User(ctx)
-	if err != nil {
-		return fmt.Errorf("github user: %w", err)
-	}
-
-	ghClient := gogithub.NewClient(nil).WithAuthToken(ghToken)
-	ghPoll := ghpoller.NewPoller(ghClient.PullRequests, ghClient.Checks, o.Config.Repos, ghUser)
-
-	eng := engine.New(log.WithName("engine"), []poller.Poller{ghPoll})
-	inf := informer.New(log.WithName("informer"), eng, pollDur, relistDur)
+	eng := engine.New(log.WithName("engine"), o.Pollers)
+	inf := informer.New(log.WithName("informer"), eng, o.PollDur, relistDur)
 	inf.RegisterHandler(loghandler.NewHandler(log.WithName("event")))
 
-	log.Info("starting", "poll_interval", pollDur, "repos", o.Config.Repos, "user", ghUser)
+	log.Info("starting", "poll_interval", o.PollDur, "repos", o.Config.Repos, "user", o.User)
 	inf.Run(ctx)
 	return nil
 }

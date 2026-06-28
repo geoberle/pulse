@@ -31,7 +31,7 @@ func run(ctx context.Context, opts *RawOptions) error {
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
-	completed, err := validated.Complete()
+	completed, err := validated.Complete(ctx)
 	if err != nil {
 		return fmt.Errorf("completion failed: %w", err)
 	}
