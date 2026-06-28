@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -40,7 +41,7 @@ func (e *Engine) List(ctx context.Context) ([]*workitem.WorkItem, error) {
 	}
 
 	if len(allItems) == 0 && len(errs) > 0 {
-		return nil, fmt.Errorf("all pollers failed: %d errors", len(errs))
+		return nil, fmt.Errorf("all pollers failed: %w", errors.Join(errs...))
 	}
 
 	return allItems, nil
