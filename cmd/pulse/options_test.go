@@ -140,23 +140,23 @@ func TestCachedSource(t *testing.T) {
 	}{
 		{
 			name:          "returns loaded items on first call",
-			storeItems:    []*workitem.WorkItem{testItem("jira:ARO-1")},
-			liveItems:     []*workitem.WorkItem{testItem("jira:ARO-2")},
+			storeItems:    []*workitem.WorkItem{testItem("jira.aro-1")},
+			liveItems:     []*workitem.WorkItem{testItem("jira.aro-2")},
 			wantItems:     []*workitem.WorkItem{testItem("jira.aro-1")},
 			wantLiveCalls: 0,
 		},
 		{
 			name:          "falls through to live on empty load",
 			storeItems:    nil,
-			liveItems:     []*workitem.WorkItem{testItem("jira:ARO-2")},
-			wantItems:     []*workitem.WorkItem{testItem("jira:ARO-2")},
+			liveItems:     []*workitem.WorkItem{testItem("jira.aro-2")},
+			wantItems:     []*workitem.WorkItem{testItem("jira.aro-2")},
 			wantLiveCalls: 1,
 		},
 		{
 			name:          "falls through to live on load error",
 			storeErr:      fmt.Errorf("disk on fire"),
-			liveItems:     []*workitem.WorkItem{testItem("jira:ARO-2")},
-			wantItems:     []*workitem.WorkItem{testItem("jira:ARO-2")},
+			liveItems:     []*workitem.WorkItem{testItem("jira.aro-2")},
+			wantItems:     []*workitem.WorkItem{testItem("jira.aro-2")},
 			wantLiveCalls: 1,
 		},
 	}
@@ -219,11 +219,11 @@ func TestCachedSource_SecondCallDelegatesToLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save([]*workitem.WorkItem{testItem("jira:ARO-1")}); err != nil {
+	if err := store.Save([]*workitem.WorkItem{testItem("jira.aro-1")}); err != nil {
 		t.Fatal(err)
 	}
 
-	live := &fakeSource{items: []*workitem.WorkItem{testItem("jira:ARO-2")}}
+	live := &fakeSource{items: []*workitem.WorkItem{testItem("jira.aro-2")}}
 	src := &cachedSource{
 		store: store,
 		live:  live,
@@ -248,7 +248,7 @@ func TestCachedSource_SecondCallDelegatesToLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].Name != "jira:ARO-2" {
+	if got[0].Name != "jira.aro-2" {
 		t.Errorf("second call: got %s, want jira:ARO-2", got[0].Name)
 	}
 	if live.calls != 1 {
@@ -271,7 +271,7 @@ func TestCachedSource_CorruptFileFallsThroughToLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	live := &fakeSource{items: []*workitem.WorkItem{testItem("jira:ARO-1")}}
+	live := &fakeSource{items: []*workitem.WorkItem{testItem("jira.aro-1")}}
 	src := &cachedSource{
 		store: store,
 		live:  live,
@@ -284,7 +284,7 @@ func TestCachedSource_CorruptFileFallsThroughToLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].Name != "jira:ARO-1" {
+	if got[0].Name != "jira.aro-1" {
 		t.Errorf("got %s, want jira:ARO-1", got[0].Name)
 	}
 	if live.calls != 1 {
@@ -296,7 +296,7 @@ func TestCachedSource_CorruptFileFallsThroughToLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].Name != "jira:ARO-1" {
+	if got[0].Name != "jira.aro-1" {
 		t.Errorf("got %s, want jira:ARO-1", got[0].Name)
 	}
 	if live.calls != 2 {

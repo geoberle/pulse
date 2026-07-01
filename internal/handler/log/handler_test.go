@@ -11,10 +11,10 @@ import (
 )
 
 func TestLogHandler(t *testing.T) {
-	pr := workitem.MakeTestItem(workitem.KindPR, "pr:org/repo:1")
-	prUpdated := workitem.MakeTestItem(workitem.KindPR, "pr:org/repo:1")
+	pr := workitem.MakeTestItem(workitem.KindPR, "pr.org.repo.1")
+	prUpdated := workitem.MakeTestItem(workitem.KindPR, "pr.org.repo.1")
 	prUpdated.Status.Phase = "merged"
-	check := workitem.MakeTestItem(workitem.KindCheck, "check:100")
+	check := workitem.MakeTestItem(workitem.KindCheck, "check.100")
 
 	tests := []struct {
 		name       string
@@ -26,14 +26,14 @@ func TestLogHandler(t *testing.T) {
 			call: func(h interface{}) {
 				h.(interface{ OnAdd(interface{}, bool) }).OnAdd(pr, false)
 			},
-			wantSubstr: []string{"Added", "pr:org/repo:1", "Test PR", "open"},
+			wantSubstr: []string{"Added", "pr.org.repo.1", "Test PR", "open"},
 		},
 		{
 			name: "delete logs item",
 			call: func(h interface{}) {
 				h.(interface{ OnDelete(interface{}) }).OnDelete(pr)
 			},
-			wantSubstr: []string{"Deleted", "pr:org/repo:1"},
+			wantSubstr: []string{"Deleted", "pr.org.repo.1"},
 		},
 		{
 			name: "update logs new item",
@@ -42,14 +42,14 @@ func TestLogHandler(t *testing.T) {
 					OnUpdate(interface{}, interface{})
 				}).OnUpdate(pr, prUpdated)
 			},
-			wantSubstr: []string{"Updated", "pr:org/repo:1", "merged"},
+			wantSubstr: []string{"Updated", "pr.org.repo.1", "merged"},
 		},
 		{
 			name: "add check logs kind",
 			call: func(h interface{}) {
 				h.(interface{ OnAdd(interface{}, bool) }).OnAdd(check, false)
 			},
-			wantSubstr: []string{"Added", "check:100", "ci"},
+			wantSubstr: []string{"Added", "check.100", "ci"},
 		},
 	}
 

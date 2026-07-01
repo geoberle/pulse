@@ -83,7 +83,7 @@ func TestNew_CreatesWorkingInformer(t *testing.T) {
 	items := []*workitem.WorkItem{
 		{
 			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
-			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira.aro-1"},
 			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
 			Status:     workitem.WorkItemStatus{Phase: "New"},
 		},
@@ -106,7 +106,7 @@ func TestNew_CreatesWorkingInformer(t *testing.T) {
 	}
 	addedItems := h.getAdded()
 	item := addedItems[0].(*workitem.WorkItem)
-	if item.Name != "jira:ARO-1" {
+	if item.Name != "jira.aro-1" {
 		t.Errorf("expected Name jira:ARO-1, got %s", item.Name)
 	}
 }
@@ -116,13 +116,13 @@ func TestNew_FlattensTree(t *testing.T) {
 	items := []*workitem.WorkItem{
 		{
 			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
-			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira.aro-1"},
 			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Root"}`),
 			Status:     workitem.WorkItemStatus{Phase: "New"},
 			Children: []*workitem.WorkItem{
 				{
 					TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindPR)},
-					ObjectMeta: metav1.ObjectMeta{Name: "pr:repo:1"},
+					ObjectMeta: metav1.ObjectMeta{Name: "pr.repo.1"},
 					Spec:       json.RawMessage(`{"repo":"test/repo","number":1,"branch":"main","title":"PR"}`),
 					Status:     workitem.WorkItemStatus{Phase: "open"},
 				},
@@ -152,19 +152,19 @@ func TestByParentIndex(t *testing.T) {
 	items := []*workitem.WorkItem{
 		{
 			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
-			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira.aro-1"},
 			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Root"}`),
 			Status:     workitem.WorkItemStatus{Phase: "New"},
 			Children: []*workitem.WorkItem{
 				{
 					TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindPR)},
-					ObjectMeta: metav1.ObjectMeta{Name: "pr:repo:1"},
+					ObjectMeta: metav1.ObjectMeta{Name: "pr.repo.1"},
 					Spec:       json.RawMessage(`{"repo":"test/repo","number":1,"branch":"main","title":"PR 1"}`),
 					Status:     workitem.WorkItemStatus{Phase: "open"},
 				},
 				{
 					TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindPR)},
-					ObjectMeta: metav1.ObjectMeta{Name: "pr:repo:2"},
+					ObjectMeta: metav1.ObjectMeta{Name: "pr.repo.2"},
 					Spec:       json.RawMessage(`{"repo":"test/repo","number":2,"branch":"main","title":"PR 2"}`),
 					Status:     workitem.WorkItemStatus{Phase: "open"},
 				},
@@ -189,7 +189,7 @@ func TestByParentIndex(t *testing.T) {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
 
-	children, err := lister.ByIndex(ByParent, "jira:ARO-1")
+	children, err := lister.ByIndex(ByParent, "jira.aro-1")
 	if err != nil {
 		t.Fatalf("ByIndex(ByParent, 'jira:ARO-1'): %v", err)
 	}
@@ -203,13 +203,13 @@ func TestByKindIndex(t *testing.T) {
 	items := []*workitem.WorkItem{
 		{
 			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
-			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira.aro-1"},
 			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Root"}`),
 			Status:     workitem.WorkItemStatus{Phase: "New"},
 			Children: []*workitem.WorkItem{
 				{
 					TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindPR)},
-					ObjectMeta: metav1.ObjectMeta{Name: "pr:repo:1"},
+					ObjectMeta: metav1.ObjectMeta{Name: "pr.repo.1"},
 					Spec:       json.RawMessage(`{"repo":"test/repo","number":1,"branch":"main","title":"PR"}`),
 					Status:     workitem.WorkItemStatus{Phase: "open"},
 				},
@@ -248,7 +248,7 @@ func TestLister_Get(t *testing.T) {
 	items := []*workitem.WorkItem{
 		{
 			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
-			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira.aro-1"},
 			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
 			Status:     workitem.WorkItemStatus{Phase: "New"},
 		},
@@ -263,14 +263,14 @@ func TestLister_Get(t *testing.T) {
 
 	lister := NewLister(inf.GetIndexer())
 
-	item, exists, err := lister.Get("jira:ARO-1")
+	item, exists, err := lister.Get("jira.aro-1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if !exists {
 		t.Fatal("expected item to exist")
 	}
-	if item.Name != "jira:ARO-1" {
+	if item.Name != "jira.aro-1" {
 		t.Errorf("expected Name jira:ARO-1, got %s", item.Name)
 	}
 
@@ -288,7 +288,7 @@ func TestNew_EmitsUpdateEvents(t *testing.T) {
 	items := []*workitem.WorkItem{
 		{
 			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
-			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira.aro-1"},
 			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
 			Status:     workitem.WorkItemStatus{Phase: "New"},
 		},
@@ -314,7 +314,7 @@ func TestNew_EmitsUpdateEvents(t *testing.T) {
 	src.items = []*workitem.WorkItem{
 		{
 			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
-			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira.aro-1"},
 			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Updated"}`),
 			Status:     workitem.WorkItemStatus{Phase: "InProgress"},
 		},
@@ -340,7 +340,7 @@ func TestNew_EmitsDeleteEvents(t *testing.T) {
 	items := []*workitem.WorkItem{
 		{
 			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
-			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira.aro-1"},
 			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
 			Status:     workitem.WorkItemStatus{Phase: "New"},
 		},

@@ -417,7 +417,7 @@ func TestRoundTrip(t *testing.T) {
 		{
 			name: "jira roundtrip",
 			item: func() *WorkItem {
-				w, err := NewWorkItem(KindJira, "jira:ARO-99999", "New", &JiraSpec{
+				w, err := NewWorkItem(KindJira, "jira.aro-99999", "New", &JiraSpec{
 					Key:     "ARO-99999",
 					Summary: "Test issue",
 				})
@@ -439,7 +439,7 @@ func TestRoundTrip(t *testing.T) {
 		{
 			name: "pr roundtrip",
 			item: func() *WorkItem {
-				w, err := NewWorkItem(KindPR, "pr:org/repo:1", "open", &PRSpec{
+				w, err := NewWorkItem(KindPR, "pr.org.repo.1", "open", &PRSpec{
 					Repo:   "org/repo",
 					Number: 1,
 					Branch: "main",
