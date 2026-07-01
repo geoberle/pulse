@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestUnmarshalSpecRecursive_JiraWorkItem(t *testing.T) {
@@ -31,8 +33,8 @@ func TestUnmarshalSpecRecursive_JiraWorkItem(t *testing.T) {
 	if jiraSpec.Key != "ARO-12345" {
 		t.Errorf("expected key ARO-12345, got %s", jiraSpec.Key)
 	}
-	if jiraSpec.Staleness != StalenessStale {
-		t.Errorf("expected staleness %q, got %q", StalenessStale, jiraSpec.Staleness)
+	if jiraSpec.Summary != "Implement DNS migration" {
+		t.Errorf("expected summary %q, got %q", "Implement DNS migration", jiraSpec.Summary)
 	}
 
 	if len(item.Children) != 1 {
@@ -48,6 +50,9 @@ func TestUnmarshalSpecRecursive_JiraWorkItem(t *testing.T) {
 	}
 	if prSpec.Repo != "Azure/ARO-HCP" {
 		t.Errorf("expected repo Azure/ARO-HCP, got %s", prSpec.Repo)
+	}
+	if prSpec.Title != "PR #891 (ARO-HCP)" {
+		t.Errorf("expected title %q, got %q", "PR #891 (ARO-HCP)", prSpec.Title)
 	}
 
 	if len(pr.Children) != 2 {
@@ -94,8 +99,8 @@ func TestUnmarshalSpec_GoldenFixtures(t *testing.T) {
 				if spec.Number != 910 {
 					t.Errorf("expected number 910, got %d", spec.Number)
 				}
-				if spec.BranchState != BranchStateNeedsRebase {
-					t.Errorf("expected branch_state %q, got %q", BranchStateNeedsRebase, spec.BranchState)
+				if spec.Title != "fix typo in README" {
+					t.Errorf("expected title %q, got %q", "fix typo in README", spec.Title)
 				}
 			},
 		},
@@ -151,7 +156,7 @@ func TestUnmarshalSpec_EdgeCases(t *testing.T) {
 		{
 			name: "unknown kind (forward-compatible)",
 			item: &WorkItem{
-				TypeMeta: TypeMeta{Kind: "unknown"},
+				TypeMeta: metav1.TypeMeta{Kind: "unknown"},
 				Spec:     json.RawMessage(`{}`),
 			},
 			checkFn: func(t *testing.T, item *WorkItem) {
@@ -161,31 +166,42 @@ func TestUnmarshalSpec_EdgeCases(t *testing.T) {
 			},
 		},
 		{
-			name: "empty jira spec (missing required key)",
+			name: "empty jira spec (tolerates missing fields on read)",
 			item: &WorkItem{
-				TypeMeta: TypeMeta{Kind: KindJira},
+				TypeMeta: metav1.TypeMeta{Kind: string(KindJira)},
 				Spec:     json.RawMessage(`{}`),
 			},
-			wantErr: true,
+			checkFn: func(t *testing.T, item *WorkItem) {
+				spec, ok := item.ParsedSpec.(*JiraSpec)
+				if !ok {
+					t.Fatalf("expected *JiraSpec, got %T", item.ParsedSpec)
+				}
+				if len(spec.Key) != 0 {
+					t.Errorf("expected empty Key, got %q", spec.Key)
+				}
+			},
 		},
 		{
-			name: "valid JSON but validation failure leaves ParsedSpec nil",
+			name: "jira spec with missing summary (tolerates on read)",
 			item: &WorkItem{
-				TypeMeta: TypeMeta{Kind: KindJira},
-				Spec:     json.RawMessage(`{"staleness":"Active"}`),
+				TypeMeta: metav1.TypeMeta{Kind: string(KindJira)},
+				Spec:     json.RawMessage(`{"key":"ARO-1"}`),
 			},
-			wantErr: true,
 			checkFn: func(t *testing.T, item *WorkItem) {
-				if item.ParsedSpec != nil {
-					t.Errorf("expected nil ParsedSpec after validation failure, got %T", item.ParsedSpec)
+				spec, ok := item.ParsedSpec.(*JiraSpec)
+				if !ok {
+					t.Fatalf("expected *JiraSpec, got %T", item.ParsedSpec)
+				}
+				if spec.Key != "ARO-1" {
+					t.Errorf("expected Key ARO-1, got %q", spec.Key)
 				}
 			},
 		},
 		{
 			name: "clears stale parsed spec",
 			item: &WorkItem{
-				TypeMeta:   TypeMeta{Kind: KindJira},
-				Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+				TypeMeta:   metav1.TypeMeta{Kind: string(KindJira)},
+				Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
 				ParsedSpec: &PRSpec{Number: 999},
 			},
 			checkFn: func(t *testing.T, item *WorkItem) {
@@ -197,7 +213,7 @@ func TestUnmarshalSpec_EdgeCases(t *testing.T) {
 		{
 			name: "malformed JSON",
 			item: &WorkItem{
-				TypeMeta: TypeMeta{Kind: KindJira},
+				TypeMeta: metav1.TypeMeta{Kind: string(KindJira)},
 				Spec:     json.RawMessage(`{broken`),
 			},
 			wantErr: true,
@@ -210,7 +226,7 @@ func TestUnmarshalSpec_EdgeCases(t *testing.T) {
 		{
 			name: "empty spec bytes",
 			item: &WorkItem{
-				TypeMeta: TypeMeta{Kind: KindJira},
+				TypeMeta: metav1.TypeMeta{Kind: string(KindJira)},
 			},
 			checkFn: func(t *testing.T, item *WorkItem) {
 				if item.ParsedSpec != nil {
@@ -234,40 +250,7 @@ func TestUnmarshalSpec_EdgeCases(t *testing.T) {
 	}
 }
 
-func TestUnmarshalSpec_InvalidEnum(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		kind Kind
-		spec string
-	}{
-		{
-			name: "invalid staleness",
-			kind: KindJira,
-			spec: `{"key":"ARO-1","staleness":"garbage"}`,
-		},
-		{
-			name: "invalid branch_state",
-			kind: KindPR,
-			spec: `{"repo":"org/repo","number":1,"branch":"main","branch_state":"garbage"}`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			item := &WorkItem{
-				TypeMeta: TypeMeta{Kind: tt.kind},
-				Spec:     json.RawMessage(tt.spec),
-			}
-			if err := item.UnmarshalSpec(); err == nil {
-				t.Error("expected error for invalid enum")
-			}
-		})
-	}
-}
-
-func TestUnmarshalSpec_RequiredFields(t *testing.T) {
+func TestUnmarshalSpec_ToleratesInvalidFields(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -282,32 +265,12 @@ func TestUnmarshalSpec_RequiredFields(t *testing.T) {
 		{
 			name: "jira invalid key format",
 			kind: KindJira,
-			spec: `{"key":"NODASH"}`,
+			spec: `{"key":"aro-1","summary":"test"}`,
 		},
 		{
 			name: "pr missing repo",
 			kind: KindPR,
-			spec: `{"number":1,"branch":"main"}`,
-		},
-		{
-			name: "pr missing number",
-			kind: KindPR,
-			spec: `{"repo":"org/repo","branch":"main"}`,
-		},
-		{
-			name: "pr missing branch",
-			kind: KindPR,
-			spec: `{"repo":"org/repo","number":1}`,
-		},
-		{
-			name: "pr invalid repo format",
-			kind: KindPR,
-			spec: `{"repo":"noslash","number":1,"branch":"main"}`,
-		},
-		{
-			name: "pr negative number",
-			kind: KindPR,
-			spec: `{"repo":"org/repo","number":-1,"branch":"main"}`,
+			spec: `{"number":1,"branch":"main","title":"t"}`,
 		},
 		{
 			name: "check missing name",
@@ -324,82 +287,50 @@ func TestUnmarshalSpec_RequiredFields(t *testing.T) {
 			kind: KindLocal,
 			spec: `{"branch":"main"}`,
 		},
-		{
-			name: "local missing branch",
-			kind: KindLocal,
-			spec: `{"worktree_id":"abc"}`,
-		},
-		{
-			name: "review file too long",
-			kind: KindReview,
-			spec: `{"file":"` + strings.Repeat("a", 4097) + `"}`,
-		},
-		{
-			name: "review summary too long",
-			kind: KindReview,
-			spec: `{"file":"ok.go","summary":"` + strings.Repeat("a", 201) + `"}`,
-		},
-		{
-			name: "local worktree_id too long",
-			kind: KindLocal,
-			spec: `{"worktree_id":"` + strings.Repeat("a", 4097) + `","branch":"main"}`,
-		},
-		{
-			name: "jira key too long",
-			kind: KindJira,
-			spec: `{"key":"` + strings.Repeat("A", 51) + `"}`,
-		},
-		{
-			name: "pr repo too long",
-			kind: KindPR,
-			spec: `{"repo":"` + strings.Repeat("a", 201) + `","number":1,"branch":"main"}`,
-		},
-		{
-			name: "pr branch too long",
-			kind: KindPR,
-			spec: `{"repo":"org/repo","number":1,"branch":"` + strings.Repeat("a", 501) + `"}`,
-		},
-		{
-			name: "pr split_surface_id too long",
-			kind: KindPR,
-			spec: `{"repo":"org/repo","number":1,"branch":"main","split_surface_id":"` + strings.Repeat("a", 501) + `"}`,
-		},
-		{
-			name: "check name too long",
-			kind: KindCheck,
-			spec: `{"name":"` + strings.Repeat("a", 501) + `"}`,
-		},
-		{
-			name: "review body_hash too long",
-			kind: KindReview,
-			spec: `{"file":"ok.go","body_hash":"` + strings.Repeat("a", 65) + `"}`,
-		},
-		{
-			name: "review split_surface_id too long",
-			kind: KindReview,
-			spec: `{"file":"ok.go","split_surface_id":"` + strings.Repeat("a", 501) + `"}`,
-		},
-		{
-			name: "local branch too long",
-			kind: KindLocal,
-			spec: `{"worktree_id":"abc","branch":"` + strings.Repeat("a", 501) + `"}`,
-		},
-		{
-			name: "local jira_key too long",
-			kind: KindLocal,
-			spec: `{"worktree_id":"abc","branch":"main","jira_key":"` + strings.Repeat("A", 51) + `"}`,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			item := &WorkItem{
-				TypeMeta: TypeMeta{Kind: tt.kind},
+				TypeMeta: metav1.TypeMeta{Kind: string(tt.kind)},
 				Spec:     json.RawMessage(tt.spec),
 			}
-			if err := item.UnmarshalSpec(); err == nil {
-				t.Error("expected validation error for missing required field")
+			if err := item.UnmarshalSpec(); err != nil {
+				t.Errorf("UnmarshalSpec() should tolerate invalid fields on read, got error: %v", err)
+			}
+			if item.ParsedSpec == nil {
+				t.Error("expected ParsedSpec to be set even with invalid fields")
+			}
+		})
+	}
+}
+
+func TestNewWorkItem_RejectsInvalidSpecs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		kind Kind
+		spec Spec
+	}{
+		{name: "jira missing key", kind: KindJira, spec: &JiraSpec{}},
+		{name: "jira missing summary", kind: KindJira, spec: &JiraSpec{Key: "ARO-1"}},
+		{name: "jira invalid key format", kind: KindJira, spec: &JiraSpec{Key: "aro-1", Summary: "test"}},
+		{name: "pr missing repo", kind: KindPR, spec: &PRSpec{Number: 1, Branch: "main", Title: "t"}},
+		{name: "pr invalid repo format", kind: KindPR, spec: &PRSpec{Repo: "noslash", Number: 1, Branch: "main", Title: "t"}},
+		{name: "pr negative number", kind: KindPR, spec: &PRSpec{Repo: "org/repo", Number: -1, Branch: "main", Title: "t"}},
+		{name: "check missing name", kind: KindCheck, spec: &CheckSpec{}},
+		{name: "review missing file", kind: KindReview, spec: &ReviewSpec{}},
+		{name: "local missing worktree_id", kind: KindLocal, spec: &LocalSpec{Branch: "main"}},
+		{name: "local missing branch", kind: KindLocal, spec: &LocalSpec{WorktreeID: "abc"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewWorkItem(tt.kind, "test-item", "phase", tt.spec)
+			if err == nil {
+				t.Error("expected NewWorkItem to reject invalid spec")
 			}
 		})
 	}
@@ -408,8 +339,8 @@ func TestUnmarshalSpec_RequiredFields(t *testing.T) {
 func TestUnmarshalSpecRecursive_NilChild(t *testing.T) {
 	t.Parallel()
 	item := &WorkItem{
-		TypeMeta: TypeMeta{Kind: KindJira},
-		Spec:     json.RawMessage(`{"key":"ARO-1"}`),
+		TypeMeta: metav1.TypeMeta{Kind: string(KindJira)},
+		Spec:     json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
 		Children: []*WorkItem{nil},
 	}
 	if err := item.UnmarshalSpecRecursive(); err == nil {
@@ -420,49 +351,39 @@ func TestUnmarshalSpecRecursive_NilChild(t *testing.T) {
 func TestNewWorkItem_Errors(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name   string
-		kind   Kind
-		id     string
-		label  string
-		status string
-		spec   Spec
+		name  string
+		kind  Kind
+		id    string
+		phase WorkItemPhase
+		spec  Spec
 	}{
 		{
-			name: "invalid kind",
-			kind: Kind("bogus"),
-			id:   "id", label: "label", status: "status",
-			spec: &JiraSpec{Key: "ARO-1"},
+			name:  "invalid kind",
+			kind:  Kind("bogus"),
+			id:    "id",
+			phase: "status",
+			spec:  &JiraSpec{Key: "ARO-1", Summary: "Test"},
 		},
 		{
-			name: "invalid spec (missing key)",
-			kind: KindJira,
-			id:   "id", label: "label", status: "status",
-			spec: &JiraSpec{},
+			name:  "invalid spec (missing key)",
+			kind:  KindJira,
+			id:    "id",
+			phase: "status",
+			spec:  &JiraSpec{},
 		},
 		{
-			name: "id too long",
-			kind: KindJira,
-			id:   strings.Repeat("a", 501), label: "label", status: "status",
-			spec: &JiraSpec{Key: "ARO-1"},
-		},
-		{
-			name: "label too long",
-			kind: KindJira,
-			id:   "id", label: strings.Repeat("a", 1001), status: "status",
-			spec: &JiraSpec{Key: "ARO-1"},
-		},
-		{
-			name: "status too long",
-			kind: KindJira,
-			id:   "id", label: "label", status: strings.Repeat("a", 501),
-			spec: &JiraSpec{Key: "ARO-1"},
+			name:  "id too long",
+			kind:  KindJira,
+			id:    strings.Repeat("a", 501),
+			phase: "status",
+			spec:  &JiraSpec{Key: "ARO-1", Summary: "Test"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := NewWorkItem(tt.kind, tt.id, tt.label, tt.status, tt.spec)
+			_, err := NewWorkItem(tt.kind, tt.id, tt.phase, tt.spec)
 			if err == nil {
 				t.Error("expected error")
 			}
@@ -472,7 +393,8 @@ func TestNewWorkItem_Errors(t *testing.T) {
 
 type unmarshalableSpec struct{}
 
-func (unmarshalableSpec) Validate() error { return nil }
+func (unmarshalableSpec) Validate() error      { return nil }
+func (s unmarshalableSpec) DeepCopySpec() Spec { return s }
 func (unmarshalableSpec) MarshalJSON() ([]byte, error) {
 	return nil, fmt.Errorf("forced marshal error")
 }
@@ -493,11 +415,11 @@ func TestRoundTrip(t *testing.T) {
 		checkFn func(t *testing.T, decoded *WorkItem)
 	}{
 		{
-			name: "jira with active staleness",
+			name: "jira roundtrip",
 			item: func() *WorkItem {
-				w, err := NewWorkItem(KindJira, "jira:ARO-99999", "Test issue", "New", &JiraSpec{
-					Key:       "ARO-99999",
-					Staleness: StalenessActive,
+				w, err := NewWorkItem(KindJira, "jira.aro-99999", "New", &JiraSpec{
+					Key:     "ARO-99999",
+					Summary: "Test issue",
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -506,57 +428,22 @@ func TestRoundTrip(t *testing.T) {
 			}(),
 			checkFn: func(t *testing.T, decoded *WorkItem) {
 				spec := decoded.ParsedSpec.(*JiraSpec)
-				if spec.Staleness != StalenessActive {
-					t.Errorf("expected staleness %q, got %q", StalenessActive, spec.Staleness)
+				if spec.Key != "ARO-99999" {
+					t.Errorf("expected key %q, got %q", "ARO-99999", spec.Key)
+				}
+				if spec.Summary != "Test issue" {
+					t.Errorf("expected summary %q, got %q", "Test issue", spec.Summary)
 				}
 			},
 		},
 		{
-			name: "jira with stale staleness",
+			name: "pr roundtrip",
 			item: func() *WorkItem {
-				w, err := NewWorkItem(KindJira, "jira:ARO-2", "Test", "New", &JiraSpec{
-					Key:       "ARO-2",
-					Staleness: StalenessStale,
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				return w
-			}(),
-			checkFn: func(t *testing.T, decoded *WorkItem) {
-				spec := decoded.ParsedSpec.(*JiraSpec)
-				if spec.Staleness != StalenessStale {
-					t.Errorf("expected staleness %q, got %q", StalenessStale, spec.Staleness)
-				}
-			},
-		},
-		{
-			name: "jira with zero staleness",
-			item: func() *WorkItem {
-				w, err := NewWorkItem(KindJira, "jira:ARO-1", "Test", "New", &JiraSpec{
-					Key:       "ARO-1",
-					Staleness: StalenessUnknown,
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				return w
-			}(),
-			checkFn: func(t *testing.T, decoded *WorkItem) {
-				spec := decoded.ParsedSpec.(*JiraSpec)
-				if spec.Staleness != StalenessUnknown {
-					t.Errorf("expected staleness %q, got %q", StalenessUnknown, spec.Staleness)
-				}
-			},
-		},
-		{
-			name: "pr with up-to-date branch state",
-			item: func() *WorkItem {
-				w, err := NewWorkItem(KindPR, "pr:org/repo:1", "Test PR", "open", &PRSpec{
-					Repo:        "org/repo",
-					Number:      1,
-					Branch:      "main",
-					BranchState: BranchStateUpToDate,
+				w, err := NewWorkItem(KindPR, "pr.org.repo.1", "open", &PRSpec{
+					Repo:   "org/repo",
+					Number: 1,
+					Branch: "main",
+					Title:  "Test PR",
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -565,50 +452,11 @@ func TestRoundTrip(t *testing.T) {
 			}(),
 			checkFn: func(t *testing.T, decoded *WorkItem) {
 				spec := decoded.ParsedSpec.(*PRSpec)
-				if spec.BranchState != BranchStateUpToDate {
-					t.Errorf("expected branch_state %q, got %q", BranchStateUpToDate, spec.BranchState)
+				if spec.Repo != "org/repo" {
+					t.Errorf("expected repo %q, got %q", "org/repo", spec.Repo)
 				}
-			},
-		},
-		{
-			name: "pr with needs-rebase branch state",
-			item: func() *WorkItem {
-				w, err := NewWorkItem(KindPR, "pr:org/repo:2", "Test PR", "open", &PRSpec{
-					Repo:        "org/repo",
-					Number:      2,
-					Branch:      "feature",
-					BranchState: BranchStateNeedsRebase,
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				return w
-			}(),
-			checkFn: func(t *testing.T, decoded *WorkItem) {
-				spec := decoded.ParsedSpec.(*PRSpec)
-				if spec.BranchState != BranchStateNeedsRebase {
-					t.Errorf("expected branch_state %q, got %q", BranchStateNeedsRebase, spec.BranchState)
-				}
-			},
-		},
-		{
-			name: "pr with zero branch state",
-			item: func() *WorkItem {
-				w, err := NewWorkItem(KindPR, "pr:org/repo:3", "Test PR", "open", &PRSpec{
-					Repo:        "org/repo",
-					Number:      3,
-					Branch:      "main",
-					BranchState: BranchStateUnknown,
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				return w
-			}(),
-			checkFn: func(t *testing.T, decoded *WorkItem) {
-				spec := decoded.ParsedSpec.(*PRSpec)
-				if spec.BranchState != BranchStateUnknown {
-					t.Errorf("expected branch_state %q, got %q", BranchStateUnknown, spec.BranchState)
+				if spec.Title != "Test PR" {
+					t.Errorf("expected title %q, got %q", "Test PR", spec.Title)
 				}
 			},
 		},
@@ -628,12 +476,23 @@ func TestRoundTrip(t *testing.T) {
 			if err := decoded.UnmarshalSpec(); err != nil {
 				t.Fatal(err)
 			}
-			if decoded.ID != tt.item.ID {
-				t.Errorf("expected id %s, got %s", tt.item.ID, decoded.ID)
+			if decoded.Name != tt.item.Name {
+				t.Errorf("expected name %s, got %s", tt.item.Name, decoded.Name)
 			}
 			if tt.checkFn != nil {
 				tt.checkFn(t, &decoded)
 			}
 		})
+	}
+}
+
+func TestDisplayName_AllKinds(t *testing.T) {
+	t.Parallel()
+	for kind := range specFactories {
+		item := MakeTestItem(kind, "test.1")
+		got := item.DisplayName()
+		if got == item.Name {
+			t.Errorf("kind %s: DisplayName returned raw Name, missing switch case", kind)
+		}
 	}
 }

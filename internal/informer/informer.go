@@ -2,107 +2,49 @@ package informer
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
 
-	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/geoberle/pulse/internal/workitem"
 )
 
-// Source provides the current set of work items. Implementations must not
-// return nil elements in the slice or in Children.
+// Source provides the current set of work items as a tree. The informer
+// flattens the tree before storing items in the cache.
 type Source interface {
 	List(ctx context.Context) ([]*workitem.WorkItem, error)
 }
 
-type Informer struct {
-	source         Source
-	pollInterval   time.Duration
-	relistInterval time.Duration
-	cache          []*workitem.WorkItem
-	handlers       []Handler
-	synced         atomic.Bool
-	log            logr.Logger
-}
-
-func New(log logr.Logger, source Source, pollInterval, relistInterval time.Duration) *Informer {
-	return &Informer{
-		log:            log,
-		source:         source,
-		pollInterval:   pollInterval,
-		relistInterval: relistInterval,
+// New creates a SharedIndexInformer that polls source at pollInterval.
+// The source returns a tree; the informer flattens it for storage.
+// Items are indexed by ByParent and ByKind for tree reconstruction.
+func New(source Source, pollInterval time.Duration) cache.SharedIndexInformer {
+	lw := &cache.ListWatch{
+		ListWithContextFunc: func(ctx context.Context, _ metav1.ListOptions) (runtime.Object, error) {
+			items, err := source.List(ctx)
+			if err != nil {
+				return nil, err
+			}
+			flat := workitem.Flatten(items)
+			return &workitem.WorkItemList{Items: flat}, nil
+		},
+		WatchFuncWithContext: func(ctx context.Context, _ metav1.ListOptions) (watch.Interface, error) {
+			return newExpiringWatcher(ctx, pollInterval), nil
+		},
 	}
-}
 
-// RegisterHandler adds a handler. Must be called before Run.
-func (inf *Informer) RegisterHandler(h Handler) {
-	inf.handlers = append(inf.handlers, h)
-}
-
-// Run polls the source at pollInterval, diffs against the cache, and dispatches
-// events for changes. At relistInterval, all cached items are re-delivered as
-// EventUpdated regardless of changes. Blocks until ctx is cancelled.
-func (inf *Informer) Run(ctx context.Context) {
-	pollTicker := time.NewTicker(inf.pollInterval)
-	defer pollTicker.Stop()
-	relistTicker := time.NewTicker(inf.relistInterval)
-	defer relistTicker.Stop()
-
-	inf.poll(ctx)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-relistTicker.C:
-			inf.relist()
-		case <-pollTicker.C:
-			inf.poll(ctx)
-		}
-	}
-}
-
-func (inf *Informer) poll(ctx context.Context) {
-	items, err := inf.source.List(ctx)
-	if err != nil {
-		inf.log.Error(err, "failed to list work items")
-		return
-	}
-	events := diffTrees(inf.cache, items, nil)
-	inf.cache = items
-	inf.synced.Store(true)
-	inf.dispatch(events)
-}
-
-func (inf *Informer) relist() {
-	var events []Event
-	walkTree(inf.cache, nil, func(item, parent *workitem.WorkItem) {
-		events = append(events, Event{Type: EventUpdated, New: item, Parent: parent})
-	})
-	inf.dispatch(events)
-}
-
-func walkTree(items []*workitem.WorkItem, parent *workitem.WorkItem, fn func(*workitem.WorkItem, *workitem.WorkItem)) {
-	for _, item := range items {
-		fn(item, parent)
-		walkTree(item.Children, item, fn)
-	}
-}
-
-func (inf *Informer) dispatch(events []Event) {
-	for _, e := range events {
-		for _, h := range inf.handlers {
-			h.OnEvent(e)
-		}
-	}
-}
-
-func (inf *Informer) HasSynced() bool {
-	return inf.synced.Load()
-}
-
-// Cache returns the current cached items. The returned slice and its elements
-// must not be mutated. Must not be called concurrently with Run.
-func (inf *Informer) Cache() []*workitem.WorkItem {
-	return inf.cache
+	return cache.NewSharedIndexInformerWithOptions(
+		&listWatchWithoutWatchListSemantics{lw},
+		&workitem.WorkItem{},
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: 0,
+			Indexers: cache.Indexers{
+				ByParent: parentIndexFunc,
+				ByKind:   kindIndexFunc,
+			},
+		},
+	)
 }

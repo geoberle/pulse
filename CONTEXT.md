@@ -7,10 +7,12 @@
 - **Local Work**: A worktree/branch with no PR yet. Detected via `supacode worktree list`. Linked to a Jira issue if the branch name contains a Jira key, otherwise shown as a top-level item.
 - **Action**: Something on a work item or its PRs that needs attention. Examples: failed CI, review comment, needs rebase, stale Jira. Actions have an autonomy tier (propose, judgment).
 - **Autonomy Tier**: How much human involvement an action requires. Propose = tool drafts, user approves inline. Judgment = opens a Supacode split with Claude. Auto tier designed but not enabled in v1 — all actions require user involvement.
-- **Informer**: Central component that holds the canonical WorkItem tree, diffs against previous state on each poll, and fires OnAdd/OnUpdate/OnDelete events to registered handlers. K8s SharedInformer-style.
-- **Engine**: Orchestrator that owns the poll loop, calls pollers, assembles the tree from flat poller results, and feeds the informer. Also owns the split-close watcher.
+- **Informer**: A `cache.SharedIndexInformer` from client-go that polls the Source via a ListWatch adapter. The Source returns a tree; the ListFunc flattens it (setting OwnerReferences, stripping Children) before the informer stores items. An ExpiringWatcher sends HTTP 410 Gone after pollInterval, triggering the reflector to relist. Items are indexed by `ByParent` and `ByKind` for tree reconstruction and filtering. Handlers register via `AddEventHandler(cache.ResourceEventHandlerFuncs{...})`. Prepared for workqueue-based controllers.
+- **Store**: Standalone persistence backend for periodic snapshots. Save writes the full WorkItem tree (reconstructed from flat items via BuildTree) atomically to `~/.local/state/pulse/state.json` via tmp + rename. Load returns the tree for TUI instant startup. Persistence is decoupled from the informer poll cycle — snapshots happen periodically, not synchronously with event dispatch.
+- **Lister**: Read-only interface wrapping `cache.Indexer`. Provides `List()`, `Get(id)`, and `ByIndex(indexName, key)`. Tree reconstruction uses `ByIndex(ByParent, parentID)` to find children on demand. Follows the K8s lister pattern.
+- **Engine**: Orchestrator that calls pollers and assembles the tree from flat poller results. Implements `informer.Source` (the `List(ctx)` method). Poll scheduling is handled by the informer's reflector, not the engine.
 - **Poller**: Source-specific data fetcher. Returns flat list of WorkItems. Engine assembles them into the tree.
-- **Handler**: Consumer registered with the informer. Receives events and performs side effects (TUI rendering, state persistence, LLM summarization, split lifecycle).
+- **Controller**: Consumer registered with the informer via `AddEventHandler`. Receives `OnAdd`/`OnUpdate`/`OnDelete` callbacks. For workqueue-based controllers, handlers enqueue item keys; workers dequeue and process via the Lister. Replaces the previous Handler pattern.
 
 ## Decisions
 
@@ -26,12 +28,15 @@
 
 ### Data Model
 
-- Unified WorkItem model: common metadata (TypeMeta + ObjectMeta) with type-specific `Spec` as `json.RawMessage`, dispatched to typed structs on unmarshal. K8s-style pattern. Recursive via `Children []*WorkItem`. See ADR-0002.
-- Kinds: `jira`, `pr`, `check`, `review`, `local`. `Kind` is a typed `string` enum with `Validate()`, not a bare string.
-- All domain enums (`Kind`, `StalenessState`, `BranchState`) follow the same pattern: typed string, constants with zero-value = unknown/unset, `Validate()` method that guards against invalid values.
-- All Spec types validate required fields on unmarshal (e.g. `JiraSpec.Key`, `PRSpec.Repo/Number/Branch`).
-- Validate on write, tolerate on read: `NewWorkItem` rejects invalid Kinds at construction; `UnmarshalSpec` skips unknown Kinds gracefully (ParsedSpec remains nil). Code that consumes ParsedSpec must handle nil. This follows the K8s API convention for forward-compatible serialization.
-- IDs follow `{source}:{identifier}` pattern (e.g. `jira:ARO-12345`, `pr:Azure/ARO-HCP:891`, `gh-comment:3453365398`).
+- Unified WorkItem model: `metav1.TypeMeta` + `metav1.ObjectMeta` + kind-specific `Spec` as `json.RawMessage` + `WorkItemStatus`. Implements `runtime.Object` and `metav1.ObjectMetaAccessor` for client-go informer compatibility. See ADR-0002.
+- **ObjectMeta is `metav1.ObjectMeta`** — no custom ObjectMeta. `Name` = opaque, DNS-safe cache key with kind prefix (e.g. `jira.aro-12345`, `pr.azure.aro-hcp.891`). `OwnerReferences[0]` = parent relationship (set by Flatten, cleared by BuildTree). Non-namespaced — cache key is just Name. Display text lives in kind-specific Spec fields (`JiraSpec.Summary`, `PRSpec.Title`, `CheckSpec.Name`, `ReviewSpec.File`), accessed via `DisplayName()` method.
+- **Status uses Phase + Conditions** (K8s Pod pattern): `WorkItemStatus.Phase` = single-valued display status (e.g. `"InProgress"`, `"open"`, `"failed"`), kind-specific. `WorkItemStatus.Conditions` = orthogonal boolean signals using `metav1.Condition` (e.g. `Stale`, `BranchOutdated`). Condition updates use `meta.SetStatusCondition` / `meta.FindStatusCondition` from apimachinery. Condition type and reason constants defined in the workitem package.
+- **OwnerReferences for parent-child**: `APIVersion` = `"pulse.dev/v1"`, `Kind` = parent's Kind, `Name` = parent's Name. In the informer cache, items are stored flat with `OwnerReferences[0].Name` expressing the parent; `Children` is used by Source/Engine for tree assembly and by Store for tree-shaped persistence. Tree reconstruction from flat items uses `ByParent` indexer or `BuildTree()`. `ParentName()` accessor extracts `OwnerReferences[0].Name`.
+- Kinds: `jira`, `pr`, `check`, `review`, `local`. `Kind` is a typed `string` enum validated against the `specFactories` registry. Adding a kind = one line in the registry + one case in `MakeTestItem`.
+- **Spec factory registry** (`specFactories`): maps each Kind to a factory function that creates an empty Spec. Single source of truth — `Kind.Validate()` and `UnmarshalSpec` both use it. `DisplayName()` uses a type switch (panics on unhandled types, caught by `TestDisplayName_AllKinds`).
+- All Spec types validate required fields and format constraints via `Validate()` (e.g. `JiraSpec.Key` must match `PROJECT-NUMBER` regex, `PRSpec.Repo` must be exactly `owner/repo`).
+- Validate on write, tolerate on read: `NewWorkItem` calls `Validate()` at construction (write path). `UnmarshalSpec` only unmarshals — no validation (read path). Unknown Kinds are skipped gracefully (ParsedSpec remains nil). Code that consumes ParsedSpec must handle nil. This follows the K8s API convention for forward-compatible serialization.
+- Names are DNS-safe, kind-prefixed, opaque cache keys. Pollers construct them. Format: `jira.<lowercase-key>`, `pr.<owner>.<repo>.<number>`, `check.<id>`, `review.<id>`, `local.<worktree-id>`. Real identifiers live in Spec fields (e.g. `JiraSpec.Key`, `PRSpec.Repo + Number`). Never parse Names — they are opaque.
 
 ### TUI
 
@@ -65,12 +70,12 @@
 
 ### Architecture
 
-- Informer pattern: pollers → engine (assembles tree) → informer (diffs, dispatches events) → handlers. See ADR-0001.
-- Handlers: TUI (channel → bubbletea Cmd), State (persists state.json), Summarizer (LLM on new/changed reviews), Split watcher (prunes dead splits on delete).
+- Informer pattern: pollers → engine (assembles tree) → informer (flattens, caches, dispatches events) → controllers. Uses `cache.SharedIndexInformer` from client-go with `ExpiringWatcher` for polling (same pattern as aro-hcp CosmosDB informers). See ADR-0001, ADR-0004.
+- Informer poll cycle: reflector calls ListFunc → Source.List() returns tree → Flatten() → informer replaces cache → fires OnAdd/OnUpdate/OnDelete. Polling driven by ExpiringWatcher (sends 410 Gone after pollInterval). Change detection handled by the informer's DeltaFIFO, not custom diffTrees.
+- Controllers: TUI (channel → bubbletea Cmd), Summarizer (LLM on new/changed reviews), Split watcher (prunes dead splits on delete). Controllers that need tree use Lister.ByIndex(ByParent, ...) to reconstruct.
 - Pollers return flat lists, engine assembles tree (PR-to-Jira matching by regex, orphan detection, local work grouping).
 - Partial poll failure → use succeeded sources, show error indicator for failed ones.
-- Informer diff: hash of Kind + ID + Label + Status + Spec bytes. Children diffed separately (recursive). No event bubbling from child to parent.
-- Engine owns poll loop (5 min interval), split-close watcher goroutine, manual refresh channel.
+- Persistence is decoupled from the informer cycle. A periodic goroutine snapshots the cache to disk via Lister → BuildTree → Store.Save. See ADR-0004.
 - Cobra CLI with RawOptions → ValidatedOptions → CompletedOptions pattern (from ARO-HCP templatize).
 
 ### Config Conventions
@@ -91,8 +96,11 @@
 ### Storage
 
 - Config: `~/.config/pulse/config.yaml` + `prompts.yaml`. XDG-compliant.
-- State: `~/.local/state/pulse/state.json`. Entire WorkItem tree persisted on every poll. Written atomically (tmp + rename).
-- State includes: comment summary cache (by comment ID + body hash), split-to-action mappings (pruned on startup against `supacode surface list`).
+- State: `~/.local/state/pulse/state.json`. Entire WorkItem tree persisted periodically by a goroutine that reads the informer cache via Lister, reconstructs the tree via BuildTree, and calls Store.Save. Written atomically (tmp + rename). Comment summaries and split surface IDs are fields on WorkItem specs (ReviewSpec.Summary, PRSpec.SplitSurfaceID), not separate state. See ADR-0004.
+- Store is standalone — not injected into the informer. JSON file implementation takes a full path — XDG resolution happens in `options.go` (Complete phase). Constructor creates the directory via `MkdirAll`, failing fast at startup if permissions are wrong. The informer receives data via `cachedSource`, which delegates to Store.Load on the first List call (instant startup) and to Engine.List (live pollers) on subsequent calls.
+- Save failures are non-fatal: log error, continue. State is a cache, pollers hold ground truth.
+- Load failures are tolerant: missing file → empty tree. Corrupt file → log warning, empty tree. Partial unmarshal failures → drop bad items, load rest. Unknown kinds → kept with nil ParsedSpec (forward compatibility). Never refuse to start over bad state.
+- On startup: cachedSource seeds the informer with persisted state on the first List call. The reflector diffs against this seeded cache on the first live poll, emitting only events for real changes. Persistence goroutine waits for the first live poll before saving, then persists periodically.
 - In-memory cache: PR data, Jira data, worktree list. Rebuilt every poll cycle.
 
 ### Testing

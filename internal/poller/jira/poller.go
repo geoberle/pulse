@@ -3,9 +3,12 @@ package jira
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/geoberle/pulse/internal/poller"
 	"github.com/geoberle/pulse/internal/workitem"
@@ -70,32 +73,46 @@ func (p *Poller) Poll(ctx context.Context) ([]*workitem.WorkItem, error) {
 }
 
 func (p *Poller) buildItem(issue *models.IssueSchemeV2) (*workitem.WorkItem, error) {
-	var staleness workitem.StalenessState
-	var status, summary string
+	var status workitem.WorkItemPhase
+	var summary string
 
 	if f := issue.Fields; f != nil {
 		summary = f.Summary
 		if f.Status != nil {
-			status = f.Status.Name
-		}
-		if f.Updated != nil {
-			updated := time.Time(*f.Updated)
-			if p.now().Sub(updated) > p.staleThreshold {
-				staleness = workitem.StalenessStale
-			} else {
-				staleness = workitem.StalenessActive
-			}
+			status = workitem.WorkItemPhase(f.Status.Name)
 		}
 	}
 
-	return workitem.NewWorkItem(
+	name := fmt.Sprintf("jira.%s", strings.ToLower(issue.Key))
+	item, err := workitem.NewWorkItem(
 		workitem.KindJira,
-		fmt.Sprintf("jira:%s", issue.Key),
-		summary,
+		name,
 		status,
 		&workitem.JiraSpec{
-			Key:       issue.Key,
-			Staleness: staleness,
+			Key:     issue.Key,
+			Summary: summary,
 		},
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	if f := issue.Fields; f != nil && f.Updated != nil {
+		updated := time.Time(*f.Updated)
+		stale := p.now().Sub(updated) > p.staleThreshold
+		condStatus := metav1.ConditionFalse
+		reason := string(workitem.ReasonWithinThreshold)
+		if stale {
+			condStatus = metav1.ConditionTrue
+			reason = string(workitem.ReasonThresholdExceeded)
+		}
+		meta.SetStatusCondition(&item.Status.Conditions, metav1.Condition{
+			Type:               string(workitem.ConditionStale),
+			Status:             condStatus,
+			Reason:             reason,
+			LastTransitionTime: metav1.Now(),
+		})
+	}
+
+	return item, nil
 }

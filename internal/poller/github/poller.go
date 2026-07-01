@@ -95,16 +95,22 @@ func (p *Poller) listAllPRs(ctx context.Context, owner, repo string) ([]*gogithu
 	return all, nil
 }
 
+// dnsSlug converts an owner/repo slug to a DNS-safe dotted form.
+func dnsSlug(slug string) string {
+	return strings.ToLower(strings.ReplaceAll(slug, "/", "."))
+}
+
 func (p *Poller) buildPRItem(ctx context.Context, owner, repo, slug string, pr *gogithub.PullRequest) (*workitem.WorkItem, error) {
+	name := fmt.Sprintf("pr.%s.%d", dnsSlug(slug), pr.GetNumber())
 	prItem, err := workitem.NewWorkItem(
 		workitem.KindPR,
-		fmt.Sprintf("pr:%s:%d", slug, pr.GetNumber()),
-		pr.GetTitle(),
-		pr.GetState(),
+		name,
+		workitem.WorkItemPhase(pr.GetState()),
 		&workitem.PRSpec{
 			Repo:   slug,
 			Number: pr.GetNumber(),
 			Branch: pr.Head.GetRef(),
+			Title:  pr.GetTitle(),
 		},
 	)
 	if err != nil {
@@ -141,11 +147,11 @@ func (p *Poller) fetchChecks(ctx context.Context, owner, repo, ref string) ([]*w
 			if len(status) == 0 {
 				status = cr.GetStatus()
 			}
+			name := fmt.Sprintf("check.%d", cr.GetID())
 			item, err := workitem.NewWorkItem(
 				workitem.KindCheck,
-				fmt.Sprintf("check:%d", cr.GetID()),
-				cr.GetName(),
-				status,
+				name,
+				workitem.WorkItemPhase(status),
 				&workitem.CheckSpec{Name: cr.GetName()},
 			)
 			if err != nil {
@@ -171,11 +177,11 @@ func (p *Poller) fetchUnresolvedReviews(ctx context.Context, owner, repo string,
 
 	var items []*workitem.WorkItem
 	for _, c := range unresolved {
+		name := fmt.Sprintf("review.%d", c.GetID())
 		item, err := workitem.NewWorkItem(
 			workitem.KindReview,
-			fmt.Sprintf("gh-comment:%d", c.GetID()),
-			c.GetPath(),
-			"unresolved",
+			name,
+			workitem.WorkItemPhase("unresolved"),
 			&workitem.ReviewSpec{
 				File:     c.GetPath(),
 				BodyHash: bodyHash(c.GetBody()),

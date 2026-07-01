@@ -7,62 +7,49 @@ import (
 
 	"github.com/go-logr/logr/funcr"
 
-	"github.com/geoberle/pulse/internal/informer"
 	"github.com/geoberle/pulse/internal/workitem"
 )
 
-func TestOnEvent(t *testing.T) {
-	pr := workitem.MakeTestItem(workitem.KindPR, "pr:org/repo:1", "fix bug")
-	prUpdated := workitem.MakeTestItem(workitem.KindPR, "pr:org/repo:1", "fix bug")
-	prUpdated.Status = "merged"
-	check := workitem.MakeTestItem(workitem.KindCheck, "check:100", "lint")
+func TestLogHandler(t *testing.T) {
+	pr := workitem.MakeTestItem(workitem.KindPR, "pr.org.repo.1")
+	prUpdated := workitem.MakeTestItem(workitem.KindPR, "pr.org.repo.1")
+	prUpdated.Status.Phase = "merged"
+	check := workitem.MakeTestItem(workitem.KindCheck, "check.100")
 
 	tests := []struct {
 		name       string
-		event      informer.Event
+		call       func(h interface{})
 		wantSubstr []string
 	}{
 		{
-			name: "added event logs new item",
-			event: informer.Event{
-				Type: informer.EventAdded,
-				New:  pr,
+			name: "add logs item",
+			call: func(h interface{}) {
+				h.(interface{ OnAdd(interface{}, bool) }).OnAdd(pr, false)
 			},
-			wantSubstr: []string{"Added", "pr:org/repo:1", "fix bug", "open"},
+			wantSubstr: []string{"Added", "pr.org.repo.1", "Test PR", "open"},
 		},
 		{
-			name: "deleted event logs old item",
-			event: informer.Event{
-				Type: informer.EventDeleted,
-				Old:  pr,
+			name: "delete logs item",
+			call: func(h interface{}) {
+				h.(interface{ OnDelete(interface{}) }).OnDelete(pr)
 			},
-			wantSubstr: []string{"Deleted", "pr:org/repo:1"},
+			wantSubstr: []string{"Deleted", "pr.org.repo.1"},
 		},
 		{
-			name: "updated event logs new item",
-			event: informer.Event{
-				Type: informer.EventUpdated,
-				Old:  pr,
-				New:  prUpdated,
+			name: "update logs new item",
+			call: func(h interface{}) {
+				h.(interface {
+					OnUpdate(interface{}, interface{})
+				}).OnUpdate(pr, prUpdated)
 			},
-			wantSubstr: []string{"Updated", "pr:org/repo:1", "merged"},
+			wantSubstr: []string{"Updated", "pr.org.repo.1", "merged"},
 		},
 		{
-			name: "event with parent includes parent id",
-			event: informer.Event{
-				Type:   informer.EventAdded,
-				New:    check,
-				Parent: pr,
+			name: "add check logs kind",
+			call: func(h interface{}) {
+				h.(interface{ OnAdd(interface{}, bool) }).OnAdd(check, false)
 			},
-			wantSubstr: []string{"Added", "check:100", "parent", "pr:org/repo:1"},
-		},
-		{
-			name: "event without parent omits parent field",
-			event: informer.Event{
-				Type: informer.EventAdded,
-				New:  check,
-			},
-			wantSubstr: []string{"Added", "check:100"},
+			wantSubstr: []string{"Added", "check.100", "ci"},
 		},
 	}
 
@@ -74,7 +61,7 @@ func TestOnEvent(t *testing.T) {
 			}, funcr.Options{})
 
 			h := NewHandler(log)
-			h.OnEvent(tt.event)
+			tt.call(h)
 
 			got := buf.String()
 			for _, want := range tt.wantSubstr {

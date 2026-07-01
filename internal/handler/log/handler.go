@@ -1,34 +1,41 @@
 package log
 
 import (
-	"github.com/go-logr/logr"
+	"fmt"
 
-	"github.com/geoberle/pulse/internal/informer"
+	"github.com/go-logr/logr"
+	"k8s.io/client-go/tools/cache"
+
+	"github.com/geoberle/pulse/internal/workitem"
 )
 
-var _ informer.Handler = (*Handler)(nil)
-
-type Handler struct {
-	log logr.Logger
+func NewHandler(log logr.Logger) cache.ResourceEventHandler {
+	return cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			logItem(log, "Added", obj)
+		},
+		UpdateFunc: func(_, newObj interface{}) {
+			logItem(log, "Updated", newObj)
+		},
+		DeleteFunc: func(obj interface{}) {
+			if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				obj = d.Obj
+			}
+			logItem(log, "Deleted", obj)
+		},
+	}
 }
 
-func NewHandler(log logr.Logger) *Handler {
-	return &Handler{log: log}
-}
-
-func (h *Handler) OnEvent(e informer.Event) {
-	item := e.New
-	if item == nil {
-		item = e.Old
+func logItem(log logr.Logger, action string, obj interface{}) {
+	item, ok := obj.(*workitem.WorkItem)
+	if !ok {
+		log.Error(nil, "unexpected type in event", "type", fmt.Sprintf("%T", obj))
+		return
 	}
-	kv := []any{
-		"kind", string(item.Kind),
-		"id", item.ID,
-		"label", item.Label,
-		"status", item.Status,
-	}
-	if e.Parent != nil {
-		kv = append(kv, "parent", e.Parent.ID)
-	}
-	h.log.Info(string(e.Type), kv...)
+	log.Info(action,
+		"kind", item.Kind,
+		"name", item.Name,
+		"display", item.DisplayName(),
+		"phase", item.Status.Phase,
+	)
 }

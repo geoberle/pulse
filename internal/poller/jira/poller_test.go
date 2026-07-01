@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/ctreminiom/go-atlassian/v2/pkg/infra/models"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/geoberle/pulse/internal/workitem"
 )
@@ -56,17 +58,17 @@ func TestPoll(t *testing.T) {
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
 				item := items[0]
-				if item.ID != "jira:ARO-100" {
-					t.Errorf("ID = %q, want %q", item.ID, "jira:ARO-100")
+				if item.Name != "jira.aro-100" {
+					t.Errorf("Name = %q, want %q", item.Name, "jira.aro-100")
 				}
-				if item.Label != "fix auth" {
-					t.Errorf("Label = %q, want %q", item.Label, "fix auth")
+				if item.DisplayName() != "fix auth" {
+					t.Errorf("DisplayName = %q, want %q", item.DisplayName(), "fix auth")
 				}
-				if item.Status != "In Progress" {
-					t.Errorf("Status = %q, want %q", item.Status, "In Progress")
+				if item.Status.Phase != "In Progress" {
+					t.Errorf("Status.Phase = %q, want %q", item.Status.Phase, "In Progress")
 				}
-				if item.Kind != workitem.KindJira {
-					t.Errorf("Kind = %q, want %q", item.Kind, workitem.KindJira)
+				if item.Kind != string(workitem.KindJira) {
+					t.Errorf("Kind = %q, want %q", item.Kind, string(workitem.KindJira))
 				}
 				spec, ok := item.ParsedSpec.(*workitem.JiraSpec)
 				if !ok {
@@ -75,8 +77,12 @@ func TestPoll(t *testing.T) {
 				if spec.Key != "ARO-100" {
 					t.Errorf("spec.Key = %q, want %q", spec.Key, "ARO-100")
 				}
-				if spec.Staleness != workitem.StalenessActive {
-					t.Errorf("spec.Staleness = %q, want %q", spec.Staleness, workitem.StalenessActive)
+				cond := meta.FindStatusCondition(item.Status.Conditions, string(workitem.ConditionStale))
+				if cond == nil {
+					t.Fatal("expected Stale condition to be set")
+				}
+				if cond.Status != metav1.ConditionFalse {
+					t.Errorf("Stale condition status = %q, want %q", cond.Status, metav1.ConditionFalse)
 				}
 			},
 		},
@@ -99,9 +105,12 @@ func TestPoll(t *testing.T) {
 			wantItems: 1,
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
-				spec := items[0].ParsedSpec.(*workitem.JiraSpec)
-				if spec.Staleness != workitem.StalenessStale {
-					t.Errorf("spec.Staleness = %q, want %q", spec.Staleness, workitem.StalenessStale)
+				cond := meta.FindStatusCondition(items[0].Status.Conditions, string(workitem.ConditionStale))
+				if cond == nil {
+					t.Fatal("expected Stale condition to be set")
+				}
+				if cond.Status != metav1.ConditionTrue {
+					t.Errorf("Stale condition status = %q, want %q", cond.Status, metav1.ConditionTrue)
 				}
 			},
 		},
@@ -165,11 +174,11 @@ func TestPoll(t *testing.T) {
 			wantItems: 2,
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
-				if items[0].ID != "jira:ARO-1" {
-					t.Errorf("items[0].ID = %q, want %q", items[0].ID, "jira:ARO-1")
+				if items[0].Name != "jira.aro-1" {
+					t.Errorf("items[0].Name = %q, want %q", items[0].Name, "jira.aro-1")
 				}
-				if items[1].ID != "jira:ARO-2" {
-					t.Errorf("items[1].ID = %q, want %q", items[1].ID, "jira:ARO-2")
+				if items[1].Name != "jira.aro-2" {
+					t.Errorf("items[1].Name = %q, want %q", items[1].Name, "jira.aro-2")
 				}
 			},
 		},
@@ -188,7 +197,7 @@ func TestPoll(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "nil updated field leaves staleness unknown",
+			name: "nil updated field has no stale condition",
 			searcher: &mockSearcher{searchFn: func(_ context.Context, _ string, _, _ []string, _ int, _ string) (*models.IssueSearchJQLSchemeV2, *models.ResponseScheme, error) {
 				return &models.IssueSearchJQLSchemeV2{
 					Issues: []*models.IssueSchemeV2{
@@ -205,9 +214,9 @@ func TestPoll(t *testing.T) {
 			wantItems: 1,
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
-				spec := items[0].ParsedSpec.(*workitem.JiraSpec)
-				if spec.Staleness != workitem.StalenessUnknown {
-					t.Errorf("spec.Staleness = %q, want %q", spec.Staleness, workitem.StalenessUnknown)
+				cond := meta.FindStatusCondition(items[0].Status.Conditions, string(workitem.ConditionStale))
+				if cond != nil {
+					t.Errorf("expected no Stale condition when Updated is nil, got %v", cond)
 				}
 			},
 		},
@@ -220,20 +229,7 @@ func TestPoll(t *testing.T) {
 					},
 				}, nil, nil
 			}},
-			wantItems: 1,
-			validate: func(t *testing.T, items []*workitem.WorkItem) {
-				t.Helper()
-				if items[0].Label != "" {
-					t.Errorf("Label = %q, want empty", items[0].Label)
-				}
-				if items[0].Status != "" {
-					t.Errorf("Status = %q, want empty", items[0].Status)
-				}
-				spec := items[0].ParsedSpec.(*workitem.JiraSpec)
-				if spec.Staleness != workitem.StalenessUnknown {
-					t.Errorf("Staleness = %q, want %q", spec.Staleness, workitem.StalenessUnknown)
-				}
-			},
+			wantErr: true,
 		},
 		{
 			name: "nil status within non-nil fields",
@@ -253,11 +249,11 @@ func TestPoll(t *testing.T) {
 			wantItems: 1,
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
-				if items[0].Label != "has summary" {
-					t.Errorf("Label = %q, want %q", items[0].Label, "has summary")
+				if items[0].DisplayName() != "has summary" {
+					t.Errorf("DisplayName = %q, want %q", items[0].DisplayName(), "has summary")
 				}
-				if items[0].Status != "" {
-					t.Errorf("Status = %q, want empty", items[0].Status)
+				if items[0].Status.Phase != "" {
+					t.Errorf("Status.Phase = %q, want empty", items[0].Status.Phase)
 				}
 			},
 		},

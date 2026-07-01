@@ -312,10 +312,37 @@ func TestValidate(t *testing.T) {
 			}(),
 		},
 		{
-			name: "invalid repo format",
+			name: "invalid repo format no slash",
 			cfg: func() Config {
 				c := validCfg()
 				c.Repos = []string{"noslash"}
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid repo format empty owner",
+			cfg: func() Config {
+				c := validCfg()
+				c.Repos = []string{"/repo"}
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid repo format empty repo",
+			cfg: func() Config {
+				c := validCfg()
+				c.Repos = []string{"owner/"}
+				return c
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "invalid repo format multiple slashes",
+			cfg: func() Config {
+				c := validCfg()
+				c.Repos = []string{"a/b/c"}
 				return c
 			}(),
 			wantErr: true,
@@ -434,6 +461,41 @@ func TestValidate(t *testing.T) {
 			err := tt.cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDefaultStatePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		xdgState string
+		wantSfx  string
+	}{
+		{
+			name:     "uses XDG_STATE_HOME when set",
+			xdgState: "/tmp/xdg-state-test",
+			wantSfx:  "/tmp/xdg-state-test/pulse/state.json",
+		},
+		{
+			name:    "falls back to ~/.local/state/pulse",
+			wantSfx: ".local/state/pulse/state.json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.xdgState) != 0 {
+				t.Setenv("XDG_STATE_HOME", tt.xdgState)
+			} else {
+				t.Setenv("XDG_STATE_HOME", "")
+			}
+			got, err := DefaultStatePath()
+			if err != nil {
+				t.Fatalf("DefaultStatePath() error: %v", err)
+			}
+			if got != tt.wantSfx && !strings.HasSuffix(got, tt.wantSfx) {
+				t.Errorf("DefaultStatePath() = %q, want suffix %q", got, tt.wantSfx)
 			}
 		})
 	}
