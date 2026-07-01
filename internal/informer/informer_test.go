@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/cache"
 
@@ -46,6 +47,9 @@ func (h *recordingHandler) OnUpdate(_, newObj interface{}) {
 }
 
 func (h *recordingHandler) OnDelete(obj interface{}) {
+	if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = d.Obj
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.deleted = append(h.deleted, obj.(runtime.Object))
@@ -78,9 +82,10 @@ func TestNew_CreatesWorkingInformer(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
-			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
-			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
-			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
+			Status:     workitem.WorkItemStatus{Phase: "New"},
 		},
 	}
 	src := &staticSource{items: items}
@@ -101,8 +106,8 @@ func TestNew_CreatesWorkingInformer(t *testing.T) {
 	}
 	addedItems := h.getAdded()
 	item := addedItems[0].(*workitem.WorkItem)
-	if item.ID != "jira:ARO-1" {
-		t.Errorf("expected ID jira:ARO-1, got %s", item.ID)
+	if item.Name != "jira:ARO-1" {
+		t.Errorf("expected Name jira:ARO-1, got %s", item.Name)
 	}
 }
 
@@ -110,14 +115,16 @@ func TestNew_FlattensTree(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
-			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
-			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Root", Status: "New"},
-			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Root"}`),
+			Status:     workitem.WorkItemStatus{Phase: "New"},
 			Children: []*workitem.WorkItem{
 				{
-					TypeMeta:   workitem.TypeMeta{Kind: workitem.KindPR},
-					ObjectMeta: workitem.ObjectMeta{ID: "pr:repo:1", Label: "PR", Status: "open"},
-					Spec:       json.RawMessage(`{"repo":"test","number":1}`),
+					TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindPR)},
+					ObjectMeta: metav1.ObjectMeta{Name: "pr:repo:1"},
+					Spec:       json.RawMessage(`{"repo":"test/repo","number":1,"branch":"main","title":"PR"}`),
+					Status:     workitem.WorkItemStatus{Phase: "open"},
 				},
 			},
 		},
@@ -144,19 +151,22 @@ func TestByParentIndex(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
-			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
-			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Root", Status: "New"},
-			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Root"}`),
+			Status:     workitem.WorkItemStatus{Phase: "New"},
 			Children: []*workitem.WorkItem{
 				{
-					TypeMeta:   workitem.TypeMeta{Kind: workitem.KindPR},
-					ObjectMeta: workitem.ObjectMeta{ID: "pr:repo:1", Label: "PR 1", Status: "open"},
-					Spec:       json.RawMessage(`{"repo":"test","number":1}`),
+					TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindPR)},
+					ObjectMeta: metav1.ObjectMeta{Name: "pr:repo:1"},
+					Spec:       json.RawMessage(`{"repo":"test/repo","number":1,"branch":"main","title":"PR 1"}`),
+					Status:     workitem.WorkItemStatus{Phase: "open"},
 				},
 				{
-					TypeMeta:   workitem.TypeMeta{Kind: workitem.KindPR},
-					ObjectMeta: workitem.ObjectMeta{ID: "pr:repo:2", Label: "PR 2", Status: "open"},
-					Spec:       json.RawMessage(`{"repo":"test","number":2}`),
+					TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindPR)},
+					ObjectMeta: metav1.ObjectMeta{Name: "pr:repo:2"},
+					Spec:       json.RawMessage(`{"repo":"test/repo","number":2,"branch":"main","title":"PR 2"}`),
+					Status:     workitem.WorkItemStatus{Phase: "open"},
 				},
 			},
 		},
@@ -192,14 +202,16 @@ func TestByKindIndex(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
-			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
-			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Root", Status: "New"},
-			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Root"}`),
+			Status:     workitem.WorkItemStatus{Phase: "New"},
 			Children: []*workitem.WorkItem{
 				{
-					TypeMeta:   workitem.TypeMeta{Kind: workitem.KindPR},
-					ObjectMeta: workitem.ObjectMeta{ID: "pr:repo:1", Label: "PR", Status: "open"},
-					Spec:       json.RawMessage(`{"repo":"test","number":1}`),
+					TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindPR)},
+					ObjectMeta: metav1.ObjectMeta{Name: "pr:repo:1"},
+					Spec:       json.RawMessage(`{"repo":"test/repo","number":1,"branch":"main","title":"PR"}`),
+					Status:     workitem.WorkItemStatus{Phase: "open"},
 				},
 			},
 		},
@@ -235,9 +247,10 @@ func TestLister_Get(t *testing.T) {
 	t.Parallel()
 	items := []*workitem.WorkItem{
 		{
-			TypeMeta:   workitem.TypeMeta{Kind: workitem.KindJira},
-			ObjectMeta: workitem.ObjectMeta{ID: "jira:ARO-1", Label: "Test", Status: "New"},
-			Spec:       json.RawMessage(`{"key":"ARO-1"}`),
+			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
+			Status:     workitem.WorkItemStatus{Phase: "New"},
 		},
 	}
 	src := &staticSource{items: items}
@@ -257,8 +270,8 @@ func TestLister_Get(t *testing.T) {
 	if !exists {
 		t.Fatal("expected item to exist")
 	}
-	if item.Label != "Test" {
-		t.Errorf("expected label Test, got %s", item.Label)
+	if item.Name != "jira:ARO-1" {
+		t.Errorf("expected Name jira:ARO-1, got %s", item.Name)
 	}
 
 	_, exists, err = lister.Get("nonexistent")
@@ -267,6 +280,98 @@ func TestLister_Get(t *testing.T) {
 	}
 	if exists {
 		t.Error("expected nonexistent item to not exist")
+	}
+}
+
+func TestNew_EmitsUpdateEvents(t *testing.T) {
+	t.Parallel()
+	items := []*workitem.WorkItem{
+		{
+			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
+			Status:     workitem.WorkItemStatus{Phase: "New"},
+		},
+	}
+	src := &staticSource{items: items}
+	inf := New(src, 100*time.Millisecond)
+	h := &recordingHandler{}
+	if _, err := inf.AddEventHandler(h); err != nil {
+		t.Fatalf("AddEventHandler: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go inf.Run(ctx.Done())
+	waitForSync(t, inf, 5*time.Second)
+
+	added, _, _ := h.counts()
+	if added != 1 {
+		t.Fatalf("expected 1 added event, got %d", added)
+	}
+
+	src.mu.Lock()
+	src.items = []*workitem.WorkItem{
+		{
+			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Updated"}`),
+			Status:     workitem.WorkItemStatus{Phase: "InProgress"},
+		},
+	}
+	src.mu.Unlock()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		_, updated, _ := h.counts()
+		if updated >= 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for update event")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func TestNew_EmitsDeleteEvents(t *testing.T) {
+	t.Parallel()
+	items := []*workitem.WorkItem{
+		{
+			TypeMeta:   metav1.TypeMeta{Kind: string(workitem.KindJira)},
+			ObjectMeta: metav1.ObjectMeta{Name: "jira:ARO-1"},
+			Spec:       json.RawMessage(`{"key":"ARO-1","summary":"Test"}`),
+			Status:     workitem.WorkItemStatus{Phase: "New"},
+		},
+	}
+	src := &staticSource{items: items}
+	inf := New(src, 100*time.Millisecond)
+	h := &recordingHandler{}
+	if _, err := inf.AddEventHandler(h); err != nil {
+		t.Fatalf("AddEventHandler: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go inf.Run(ctx.Done())
+	waitForSync(t, inf, 5*time.Second)
+
+	src.mu.Lock()
+	src.items = nil
+	src.mu.Unlock()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		_, _, deleted := h.counts()
+		if deleted >= 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for delete event")
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }
 

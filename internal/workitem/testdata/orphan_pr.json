@@ -1,12 +1,15 @@
 {
   "kind": "pr",
-  "id": "pr:Azure/ARO-HCP:910",
-  "label": "fix typo in README",
-  "status": "open",
+  "metadata": {
+    "name": "pr:Azure/ARO-HCP:910"
+  },
   "spec": {
     "repo": "Azure/ARO-HCP",
     "number": 910,
     "branch": "fix-typo",
-    "branch_state": "NeedsRebase"
+    "title": "fix typo in README"
+  },
+  "status": {
+    "phase": "open"
   }
 }

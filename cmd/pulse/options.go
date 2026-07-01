@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	jira "github.com/ctreminiom/go-atlassian/v2/jira/v2"
@@ -164,11 +165,56 @@ func (o *ValidatedOptions) Complete(ctx context.Context) (*Options, error) {
 	}, nil
 }
 
+// cachedSource wraps a live Source, returning persisted state on the
+// first List call for instant cache population. Subsequent calls
+// delegate to the live source; the reflector diffs against the seeded
+// cache and only emits events for real changes.
+type cachedSource struct {
+	mu     sync.Mutex
+	store  *jsonstore.Store
+	live   informer.Source
+	log    logr.Logger
+	seeded bool
+	liveC  chan struct{}
+}
+
+// List is called exclusively by the reflector (single-threaded).
+func (s *cachedSource) List(ctx context.Context) ([]*workitem.WorkItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.seeded {
+		s.seeded = true
+		items, err := s.store.Load()
+		if err != nil {
+			s.log.Error(err, "loading persisted state, falling through to live source")
+		} else if len(items) > 0 {
+			return items, nil
+		}
+	}
+	result, err := s.live.List(ctx)
+	if err == nil {
+		select {
+		case <-s.liveC:
+		default:
+			close(s.liveC)
+		}
+	}
+	return result, err
+}
+
+func (s *cachedSource) LiveReady() <-chan struct{} { return s.liveC }
+
 // Run executes the main application loop.
 func (o *Options) Run(ctx context.Context) error {
 	log, _ := logr.FromContext(ctx)
 
-	inf := informer.New(o.Engine, o.PollDur)
+	src := &cachedSource{
+		store: o.Store,
+		live:  o.Engine,
+		log:   log.WithName("cache"),
+		liveC: make(chan struct{}),
+	}
+	inf := informer.New(src, o.PollDur)
 	if _, err := inf.AddEventHandler(loghandler.NewHandler(log.WithName("event"))); err != nil {
 		return fmt.Errorf("add event handler: %w", err)
 	}
@@ -184,13 +230,19 @@ func (o *Options) Run(ctx context.Context) error {
 	}
 	log.Info("informer synced")
 
-	go o.persistPeriodically(ctx, log, lister)
+	go o.persistPeriodically(ctx, log, lister, src.LiveReady())
 
 	<-ctx.Done()
 	return nil
 }
 
-func (o *Options) persistPeriodically(ctx context.Context, log logr.Logger, lister informer.Lister) {
+func (o *Options) persistPeriodically(ctx context.Context, log logr.Logger, lister informer.Lister, ready <-chan struct{}) {
+	select {
+	case <-ready:
+	case <-ctx.Done():
+		return
+	}
+	o.persist(log, lister)
 	ticker := time.NewTicker(o.PollDur)
 	defer ticker.Stop()
 	for {
@@ -203,10 +255,9 @@ func (o *Options) persistPeriodically(ctx context.Context, log logr.Logger, list
 	}
 }
 
+// persist snapshots the informer cache to disk. Lister returns shared
+// pointers (K8s convention); BuildTree DeepCopies before mutating.
 func (o *Options) persist(log logr.Logger, lister informer.Lister) {
-	if o.Store == nil {
-		return
-	}
 	items, err := lister.List()
 	if err != nil {
 		log.Error(err, "failed to list items for persistence")

@@ -2,49 +2,48 @@ package workitem
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
-// StalenessState represents whether a Jira issue has gone stale based on
-// the configured threshold. Zero value ("") means not yet evaluated and
-// is omitted from JSON via omitempty — presence implies evaluated.
-type StalenessState string
+var jiraKeyRegex = regexp.MustCompile(`^[A-Z][A-Z0-9]*-\d+$`)
 
-const (
-	StalenessUnknown StalenessState = ""
-	StalenessActive  StalenessState = "Active"
-	StalenessStale   StalenessState = "Stale"
-)
-
-// Validate checks that the StalenessState is a known value.
-func (s StalenessState) Validate() error {
-	switch s {
-	case StalenessUnknown, StalenessActive, StalenessStale:
-		return nil
-	default:
-		return fmt.Errorf("unknown staleness state %q", s)
+// ValidateRepoFormat checks that repo is a valid "owner/repo" slug.
+func ValidateRepoFormat(repo string) error {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 || len(parts[0]) == 0 || len(parts[1]) == 0 {
+		return fmt.Errorf("invalid repo format %q, expected owner/repo", repo)
 	}
+	return nil
 }
 
-// BranchState represents the state of a PR branch relative to its target.
-// Zero value ("") means not yet checked and is omitted from JSON via
-// omitempty — presence implies checked.
-type BranchState string
+// ConditionType identifies a WorkItem condition (e.g. Stale, BranchOutdated).
+type ConditionType string
 
 const (
-	BranchStateUnknown     BranchState = ""
-	BranchStateUpToDate    BranchState = "UpToDate"
-	BranchStateNeedsRebase BranchState = "NeedsRebase"
+	ConditionStale          ConditionType = "Stale"
+	ConditionBranchOutdated ConditionType = "BranchOutdated"
 )
 
-// Validate checks that the BranchState is a known value.
-func (b BranchState) Validate() error {
-	switch b {
-	case BranchStateUnknown, BranchStateUpToDate, BranchStateNeedsRebase:
-		return nil
-	default:
-		return fmt.Errorf("unknown branch state %q", b)
-	}
+// ConditionReason explains why a condition has its current status.
+type ConditionReason string
+
+const (
+	ReasonThresholdExceeded ConditionReason = "ThresholdExceeded"
+	ReasonWithinThreshold   ConditionReason = "WithinThreshold"
+	ReasonNeedsRebase       ConditionReason = "NeedsRebase"
+	ReasonUpToDate          ConditionReason = "UpToDate"
+)
+
+// specFactories is the single source of truth for valid Kinds. Maps each
+// Kind to a factory that creates an empty Spec for unmarshaling.
+// Kind.Validate() and UnmarshalSpec both use this registry.
+var specFactories = map[Kind]func() Spec{
+	KindJira:   func() Spec { return &JiraSpec{} },
+	KindPR:     func() Spec { return &PRSpec{} },
+	KindCheck:  func() Spec { return &CheckSpec{} },
+	KindReview: func() Spec { return &ReviewSpec{} },
+	KindLocal:  func() Spec { return &LocalSpec{} },
 }
 
 var (
@@ -58,16 +57,13 @@ var (
 // JiraSpec holds type-specific fields for a Jira work item (Story or Bug).
 type JiraSpec struct {
 	// Key is the Jira issue key. Required. Format: "PROJECT-NUMBER".
-	// Example: "ARO-12345"
 	Key string `json:"key"`
 
-	// Staleness indicates whether the issue has been inactive beyond
-	// stale_threshold. Must be a valid StalenessState value.
-	// Empty (StalenessUnknown) means not yet evaluated.
-	Staleness StalenessState `json:"staleness,omitempty"`
+	// Summary is the Jira issue summary (display text for TUI).
+	Summary string `json:"summary"`
 }
 
-// Validate checks required fields, length constraints, and enum values.
+// Validate checks required fields, length constraints, and format.
 func (s *JiraSpec) Validate() error {
 	if len(s.Key) == 0 {
 		return fmt.Errorf("key is required")
@@ -75,16 +71,21 @@ func (s *JiraSpec) Validate() error {
 	if len(s.Key) > 50 {
 		return fmt.Errorf("key: max 50 chars, got %d", len(s.Key))
 	}
-	if !strings.Contains(s.Key, "-") {
-		return fmt.Errorf("invalid key format %q, expected PROJECT-NUMBER", s.Key)
+	if !jiraKeyRegex.MatchString(s.Key) {
+		return fmt.Errorf("invalid key format %q, expected PROJECT-NUMBER (e.g. ARO-123)", s.Key)
 	}
-	return s.Staleness.Validate()
+	if len(s.Summary) == 0 {
+		return fmt.Errorf("summary is required")
+	}
+	if len(s.Summary) > 1000 {
+		return fmt.Errorf("summary: max 1000 chars, got %d", len(s.Summary))
+	}
+	return nil
 }
 
 // PRSpec holds type-specific fields for a GitHub pull request.
 type PRSpec struct {
 	// Repo is the GitHub owner/repo slug. Required.
-	// Example: "Azure/ARO-HCP"
 	Repo string `json:"repo"`
 
 	// Number is the PR number within the repository. Required.
@@ -93,17 +94,15 @@ type PRSpec struct {
 	// Branch is the head branch name of the PR. Required.
 	Branch string `json:"branch"`
 
-	// BranchState indicates the state of the PR branch relative to its
-	// target branch. Must be a valid BranchState value.
-	// Empty (BranchStateUnknown) means not yet checked.
-	BranchState BranchState `json:"branch_state,omitempty"`
+	// Title is the PR title (display text for TUI). Required.
+	Title string `json:"title"`
 
 	// SplitSurfaceID is the Supacode surface ID if a Claude split session
 	// is currently open for this PR. Empty when no split is active.
 	SplitSurfaceID string `json:"split_surface_id,omitempty"`
 }
 
-// Validate checks required fields, length constraints, and enum values.
+// Validate checks required fields, length constraints, and format.
 func (s *PRSpec) Validate() error {
 	if len(s.Repo) == 0 {
 		return fmt.Errorf("repo is required")
@@ -111,8 +110,8 @@ func (s *PRSpec) Validate() error {
 	if len(s.Repo) > 200 {
 		return fmt.Errorf("repo: max 200 chars, got %d", len(s.Repo))
 	}
-	if !strings.Contains(s.Repo, "/") {
-		return fmt.Errorf("invalid repo format %q, expected owner/repo", s.Repo)
+	if err := ValidateRepoFormat(s.Repo); err != nil {
+		return err
 	}
 	if s.Number <= 0 {
 		return fmt.Errorf("number must be positive, got %d", s.Number)
@@ -123,10 +122,16 @@ func (s *PRSpec) Validate() error {
 	if len(s.Branch) > 500 {
 		return fmt.Errorf("branch: max 500 chars, got %d", len(s.Branch))
 	}
+	if len(s.Title) == 0 {
+		return fmt.Errorf("title is required")
+	}
+	if len(s.Title) > 1000 {
+		return fmt.Errorf("title: max 1000 chars, got %d", len(s.Title))
+	}
 	if len(s.SplitSurfaceID) > 500 {
 		return fmt.Errorf("split_surface_id: max 500 chars, got %d", len(s.SplitSurfaceID))
 	}
-	return s.BranchState.Validate()
+	return nil
 }
 
 // CheckSpec holds type-specific fields for a CI check run on a PR.
@@ -216,3 +221,9 @@ func (s *LocalSpec) Validate() error {
 	}
 	return nil
 }
+
+func (s *JiraSpec) DeepCopySpec() Spec   { return s.DeepCopy() }
+func (s *PRSpec) DeepCopySpec() Spec     { return s.DeepCopy() }
+func (s *CheckSpec) DeepCopySpec() Spec  { return s.DeepCopy() }
+func (s *ReviewSpec) DeepCopySpec() Spec { return s.DeepCopy() }
+func (s *LocalSpec) DeepCopySpec() Spec  { return s.DeepCopy() }

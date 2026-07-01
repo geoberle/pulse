@@ -3,6 +3,7 @@ package informer
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,6 +24,7 @@ func (listWatchWithoutWatchListSemantics) IsWatchListSemanticsUnSupported() bool
 type expiringWatcher struct {
 	result chan watch.Event
 	done   chan struct{}
+	stop   sync.Once
 }
 
 // newExpiringWatcher creates a watcher that sends an HTTP 410 Gone
@@ -34,8 +36,10 @@ func newExpiringWatcher(ctx context.Context, expiry time.Duration) watch.Interfa
 	}
 	go func() {
 		defer utilruntime.HandleCrash()
+		timer := time.NewTimer(expiry)
+		defer timer.Stop()
 		select {
-		case <-time.After(expiry):
+		case <-timer.C:
 			w.result <- watch.Event{
 				Type: watch.Error,
 				Object: &metav1.Status{
@@ -54,11 +58,7 @@ func newExpiringWatcher(ctx context.Context, expiry time.Duration) watch.Interfa
 }
 
 func (w *expiringWatcher) Stop() {
-	select {
-	case <-w.done:
-	default:
-		close(w.done)
-	}
+	w.stop.Do(func() { close(w.done) })
 }
 
 func (w *expiringWatcher) ResultChan() <-chan watch.Event { return w.result }

@@ -1,10 +1,13 @@
 {
   "kind": "local",
-  "id": "local:/home/user/dev/my-project.experiment",
-  "label": "experiment-branch",
-  "status": "",
+  "metadata": {
+    "name": "local:/home/user/dev/my-project.experiment"
+  },
   "spec": {
     "worktree_id": "%2Fhome%2Fuser%2Fdev%2Fmy-project.experiment%2F",
     "branch": "experiment-branch"
+  },
+  "status": {
+    "phase": ""
   }
 }

@@ -36,8 +36,8 @@ func TestList(t *testing.T) {
 			pollers: []poller.Poller{
 				mockPollerFn(func(_ context.Context) ([]*workitem.WorkItem, error) {
 					return []*workitem.WorkItem{
-						workitem.MakeTestItem(workitem.KindPR, "pr:test/repo:1", "fix bug"),
-						workitem.MakeTestItem(workitem.KindPR, "pr:test/repo:2", "add feature"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:test/repo:1"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:test/repo:2"),
 					}, nil
 				}),
 			},
@@ -48,23 +48,23 @@ func TestList(t *testing.T) {
 			pollers: []poller.Poller{
 				mockPollerFn(func(_ context.Context) ([]*workitem.WorkItem, error) {
 					return []*workitem.WorkItem{
-						workitem.MakeTestItem(workitem.KindPR, "pr:repo-a/x:1", "PR from A"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:repo-a/x:1"),
 					}, nil
 				}),
 				mockPollerFn(func(_ context.Context) ([]*workitem.WorkItem, error) {
 					return []*workitem.WorkItem{
-						workitem.MakeTestItem(workitem.KindPR, "pr:repo-b/x:1", "PR from B"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:repo-b/x:1"),
 					}, nil
 				}),
 			},
 			wantItems: 2,
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
-				if items[0].ID != "pr:repo-a/x:1" {
-					t.Errorf("items[0].ID = %q, want %q", items[0].ID, "pr:repo-a/x:1")
+				if items[0].Name != "pr:repo-a/x:1" {
+					t.Errorf("items[0].Name = %q, want %q", items[0].Name, "pr:repo-a/x:1")
 				}
-				if items[1].ID != "pr:repo-b/x:1" {
-					t.Errorf("items[1].ID = %q, want %q", items[1].ID, "pr:repo-b/x:1")
+				if items[1].Name != "pr:repo-b/x:1" {
+					t.Errorf("items[1].Name = %q, want %q", items[1].Name, "pr:repo-b/x:1")
 				}
 			},
 		},
@@ -76,7 +76,7 @@ func TestList(t *testing.T) {
 				}),
 				mockPollerFn(func(_ context.Context) ([]*workitem.WorkItem, error) {
 					return []*workitem.WorkItem{
-						workitem.MakeTestItem(workitem.KindPR, "pr:repo-b/x:1", "still works"),
+						workitem.MakeTestItem(workitem.KindPR, "pr:repo-b/x:1"),
 					}, nil
 				}),
 			},

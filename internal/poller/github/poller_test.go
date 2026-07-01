@@ -85,17 +85,17 @@ func TestPoll(t *testing.T) {
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
 				pr := items[0]
-				if pr.Kind != workitem.KindPR {
-					t.Errorf("kind = %q, want %q", pr.Kind, workitem.KindPR)
+				if pr.Kind != string(workitem.KindPR) {
+					t.Errorf("kind = %q, want %q", pr.Kind, string(workitem.KindPR))
 				}
-				if pr.ID != "pr:Azure/ARO-HCP:42" {
-					t.Errorf("id = %q, want %q", pr.ID, "pr:Azure/ARO-HCP:42")
+				if pr.Name != "pr.azure.aro-hcp.42" {
+					t.Errorf("name = %q, want %q", pr.Name, "pr.azure.aro-hcp.42")
 				}
-				if pr.Label != "fix: update reconciler" {
-					t.Errorf("label = %q, want %q", pr.Label, "fix: update reconciler")
+				if pr.DisplayName() != "fix: update reconciler" {
+					t.Errorf("DisplayName = %q, want %q", pr.DisplayName(), "fix: update reconciler")
 				}
-				if pr.Status != "open" {
-					t.Errorf("status = %q, want %q", pr.Status, "open")
+				if pr.Status.Phase != "open" {
+					t.Errorf("status.phase = %q, want %q", pr.Status.Phase, "open")
 				}
 				if len(pr.Children) != 0 {
 					t.Errorf("children = %d, want 0", len(pr.Children))
@@ -139,8 +139,8 @@ func TestPoll(t *testing.T) {
 			wantItems: 1,
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
-				if items[0].ID != "pr:Azure/ARO-HCP:2" {
-					t.Errorf("expected only user's PR, got id %q", items[0].ID)
+				if items[0].Name != "pr.azure.aro-hcp.2" {
+					t.Errorf("expected only user's PR, got name %q", items[0].Name)
 				}
 			},
 		},
@@ -176,19 +176,19 @@ func TestPoll(t *testing.T) {
 					t.Fatalf("children = %d, want 2", len(pr.Children))
 				}
 				check1 := pr.Children[0]
-				if check1.Kind != workitem.KindCheck {
-					t.Errorf("child[0].kind = %q, want %q", check1.Kind, workitem.KindCheck)
+				if check1.Kind != string(workitem.KindCheck) {
+					t.Errorf("child[0].kind = %q, want %q", check1.Kind, string(workitem.KindCheck))
 				}
-				if check1.ID != "check:100" {
-					t.Errorf("child[0].id = %q, want %q", check1.ID, "check:100")
+				if check1.Name != "check.100" {
+					t.Errorf("child[0].name = %q, want %q", check1.Name, "check.100")
 				}
-				if check1.Status != "success" {
-					t.Errorf("child[0].status = %q, want %q", check1.Status, "success")
+				if check1.Status.Phase != "success" {
+					t.Errorf("child[0].status.phase = %q, want %q", check1.Status.Phase, "success")
 				}
 
 				check2 := pr.Children[1]
-				if check2.Status != "in_progress" {
-					t.Errorf("child[1].status = %q, want %q", check2.Status, "in_progress")
+				if check2.Status.Phase != "in_progress" {
+					t.Errorf("child[1].status.phase = %q, want %q", check2.Status.Phase, "in_progress")
 				}
 			},
 		},
@@ -226,14 +226,14 @@ func TestPoll(t *testing.T) {
 					t.Fatalf("children = %d, want 1", len(pr.Children))
 				}
 				review := pr.Children[0]
-				if review.Kind != workitem.KindReview {
-					t.Errorf("child.kind = %q, want %q", review.Kind, workitem.KindReview)
+				if review.Kind != string(workitem.KindReview) {
+					t.Errorf("child.kind = %q, want %q", review.Kind, string(workitem.KindReview))
 				}
-				if review.ID != "gh-comment:500" {
-					t.Errorf("child.id = %q, want %q", review.ID, "gh-comment:500")
+				if review.Name != "review.500" {
+					t.Errorf("child.name = %q, want %q", review.Name, "review.500")
 				}
-				if review.Status != "unresolved" {
-					t.Errorf("child.status = %q, want %q", review.Status, "unresolved")
+				if review.Status.Phase != "unresolved" {
+					t.Errorf("child.status.phase = %q, want %q", review.Status.Phase, "unresolved")
 				}
 				spec := review.ParsedSpec.(*workitem.ReviewSpec)
 				if spec.File != "internal/handler.go" {
@@ -291,11 +291,11 @@ func TestPoll(t *testing.T) {
 			wantItems: 2,
 			validate: func(t *testing.T, items []*workitem.WorkItem) {
 				t.Helper()
-				if items[0].ID != "pr:Azure/ARO-HCP:1" {
-					t.Errorf("items[0].id = %q, want %q", items[0].ID, "pr:Azure/ARO-HCP:1")
+				if items[0].Name != "pr.azure.aro-hcp.1" {
+					t.Errorf("items[0].name = %q, want %q", items[0].Name, "pr.azure.aro-hcp.1")
 				}
-				if items[1].ID != "pr:Azure/ARO-Tools:2" {
-					t.Errorf("items[1].id = %q, want %q", items[1].ID, "pr:Azure/ARO-Tools:2")
+				if items[1].Name != "pr.azure.aro-tools.2" {
+					t.Errorf("items[1].name = %q, want %q", items[1].Name, "pr.azure.aro-tools.2")
 				}
 			},
 		},

@@ -9,6 +9,7 @@ import (
 )
 
 // Lister provides read access to the informer's indexed cache.
+// Returned items are shared pointers into the cache — callers must not mutate them.
 type Lister interface {
 	List() ([]*workitem.WorkItem, error)
 	Get(id string) (*workitem.WorkItem, bool, error)

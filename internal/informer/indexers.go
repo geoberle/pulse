@@ -11,18 +11,19 @@ const (
 	ByKind   = "byKind"
 )
 
-func ParentIndexFunc(obj interface{}) ([]string, error) {
+// Root items (no OwnerReferences) are indexed under the empty string key.
+func parentIndexFunc(obj interface{}) ([]string, error) {
 	item, ok := obj.(*workitem.WorkItem)
 	if !ok {
 		return nil, fmt.Errorf("expected *WorkItem, got %T", obj)
 	}
-	return []string{item.ParentID}, nil
+	return []string{item.ParentName()}, nil
 }
 
-func KindIndexFunc(obj interface{}) ([]string, error) {
+func kindIndexFunc(obj interface{}) ([]string, error) {
 	item, ok := obj.(*workitem.WorkItem)
 	if !ok {
 		return nil, fmt.Errorf("expected *WorkItem, got %T", obj)
 	}
-	return []string{string(item.Kind)}, nil
+	return []string{item.Kind}, nil
 }

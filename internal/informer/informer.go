@@ -42,8 +42,8 @@ func New(source Source, pollInterval time.Duration) cache.SharedIndexInformer {
 		cache.SharedIndexInformerOptions{
 			ResyncPeriod: 0,
 			Indexers: cache.Indexers{
-				ByParent: ParentIndexFunc,
-				ByKind:   KindIndexFunc,
+				ByParent: parentIndexFunc,
+				ByKind:   kindIndexFunc,
 			},
 		},
 	)

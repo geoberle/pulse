@@ -1,6 +1,8 @@
 package log
 
 import (
+	"fmt"
+
 	"github.com/go-logr/logr"
 	"k8s.io/client-go/tools/cache"
 
@@ -16,6 +18,9 @@ func NewHandler(log logr.Logger) cache.ResourceEventHandler {
 			logItem(log, "Updated", newObj)
 		},
 		DeleteFunc: func(obj interface{}) {
+			if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				obj = d.Obj
+			}
 			logItem(log, "Deleted", obj)
 		},
 	}
@@ -24,12 +29,13 @@ func NewHandler(log logr.Logger) cache.ResourceEventHandler {
 func logItem(log logr.Logger, action string, obj interface{}) {
 	item, ok := obj.(*workitem.WorkItem)
 	if !ok {
+		log.Error(nil, "unexpected type in event", "type", fmt.Sprintf("%T", obj))
 		return
 	}
 	log.Info(action,
-		"kind", string(item.Kind),
-		"id", item.ID,
-		"label", item.Label,
-		"status", item.Status,
+		"kind", item.Kind,
+		"name", item.Name,
+		"display", item.DisplayName(),
+		"phase", item.Status.Phase,
 	)
 }

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/geoberle/pulse/internal/workitem"
 )
 
 var jiraProjectRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]+$`)
@@ -120,8 +122,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("repos: max 50 entries, got %d", len(c.Repos))
 	}
 	for _, repo := range c.Repos {
-		if !strings.Contains(repo, "/") {
-			return fmt.Errorf("invalid repo format %q, expected owner/repo", repo)
+		if err := workitem.ValidateRepoFormat(repo); err != nil {
+			return err
 		}
 	}
 	if len(c.JiraProject) == 0 {

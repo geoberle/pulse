@@ -3,6 +3,8 @@ package workitem
 import (
 	"encoding/json"
 	"fmt"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func (w *WorkItem) UnmarshalSpec() error {
@@ -10,26 +12,13 @@ func (w *WorkItem) UnmarshalSpec() error {
 	if len(w.Spec) == 0 {
 		return nil
 	}
-	var spec Spec
-	switch w.Kind {
-	case KindJira:
-		spec = &JiraSpec{}
-	case KindPR:
-		spec = &PRSpec{}
-	case KindCheck:
-		spec = &CheckSpec{}
-	case KindReview:
-		spec = &ReviewSpec{}
-	case KindLocal:
-		spec = &LocalSpec{}
-	default:
+	factory, ok := specFactories[Kind(w.Kind)]
+	if !ok {
 		return nil
 	}
+	spec := factory()
 	if err := json.Unmarshal(w.Spec, spec); err != nil {
 		return fmt.Errorf("unmarshal spec for kind %s: %w", w.Kind, err)
-	}
-	if err := spec.Validate(); err != nil {
-		return fmt.Errorf("validate spec for kind %s: %w", w.Kind, err)
 	}
 	w.ParsedSpec = spec
 	return nil
@@ -59,14 +48,17 @@ func MarshalSpec(spec Spec) (json.RawMessage, error) {
 }
 
 // NewWorkItem constructs a WorkItem with a validated Kind and marshaled Spec.
-// Specs are stored by reference — do not mutate a spec after passing it here.
-func NewWorkItem(kind Kind, id, label, status string, spec Spec) (*WorkItem, error) {
+// Spec is marshaled to JSON immediately — mutations after this call do not
+// affect the WorkItem's Spec field.
+func NewWorkItem(kind Kind, name string, phase WorkItemPhase, spec Spec) (*WorkItem, error) {
 	if err := kind.Validate(); err != nil {
 		return nil, err
 	}
-	meta := ObjectMeta{ID: id, Label: label, Status: status}
-	if err := meta.Validate(); err != nil {
-		return nil, err
+	if len(name) == 0 {
+		return nil, fmt.Errorf("name is required")
+	}
+	if len(name) > 500 {
+		return nil, fmt.Errorf("name: max 500 chars, got %d", len(name))
 	}
 	if err := spec.Validate(); err != nil {
 		return nil, fmt.Errorf("validate spec for kind %s: %w", kind, err)
@@ -76,9 +68,13 @@ func NewWorkItem(kind Kind, id, label, status string, spec Spec) (*WorkItem, err
 		return nil, err
 	}
 	return &WorkItem{
-		TypeMeta:   TypeMeta{Kind: kind},
-		ObjectMeta: meta,
+		TypeMeta: metav1.TypeMeta{
+			Kind:       string(kind),
+			APIVersion: APIVersion,
+		},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec:       raw,
+		Status:     WorkItemStatus{Phase: phase},
 		ParsedSpec: spec,
 	}, nil
 }
