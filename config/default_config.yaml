@@ -1,0 +1,25 @@
+repos:
+  - owner: Azure
+    name: ARO-HCP
+    path: ~/dev/aro-hcp
+  - owner: Azure
+    name: ARO-Tools
+    path: ~/dev/ARO-Tools
+
+jira:
+  host: https://redhat.atlassian.net
+  project: ARO
+  component: aro-hcp-1p
+  default_issue_type: Story
+
+# llm:
+#   provider: vertex
+#   project: my-gcp-project
+#   region: us-east5
+
+poll_intervals:
+  git: 30s
+  github: 5m
+  jira: 5m
+
+stale_threshold: 120h
