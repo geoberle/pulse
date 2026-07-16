@@ -4,57 +4,58 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// ObjectMeta contains metadata common to all stored objects.
 type ObjectMeta struct {
-	// ResourceVersion is an opaque counter incremented on every update,
-	// used for optimistic concurrency control.
-	ResourceVersion int64 `json:"resourceVersion"`
-	// CreationTimestamp records when the object was first persisted.
+	ResourceVersion   int64     `json:"resourceVersion"`
 	CreationTimestamp time.Time `json:"creationTimestamp"`
 }
 
-func (o *ObjectMeta) GetObjectMeta() *ObjectMeta {
-	return o
-}
-
-// Object is the interface implemented by all API types that can be
-// stored, listed, and watched via informers.
-type Object interface {
-	GetObjectMeta() *ObjectMeta
-	Key() string
-	DeepCopyObject() Object
-}
-
-// WorktreeCommitState indicates whether a worktree has local commits.
 type WorktreeCommitState string
 
 const (
-	// WorktreeCommitStateNone means no local commits exist.
-	WorktreeCommitStateNone WorktreeCommitState = ""
-	// WorktreeCommitStateHasCommits means the worktree has unpushed commits.
+	WorktreeCommitStateNone       WorktreeCommitState = ""
 	WorktreeCommitStateHasCommits WorktreeCommitState = "HasCommits"
 )
 
-// Worktree represents a local git worktree being tracked.
 type Worktree struct {
 	ObjectMeta
-	// Path is the absolute filesystem path to the worktree root. Used as the primary key.
-	Path string `json:"path"`
-	// Repo is the repository identifier in "org/name" format, e.g. "Azure/ARO-HCP".
-	Repo string `json:"repo"`
-	// Branch is the git branch checked out in this worktree.
-	Branch string `json:"branch"`
-	// CommitState indicates whether local commits exist in this worktree.
+	Path        string              `json:"path"`
+	Repo        string              `json:"repo"`
+	Branch      string              `json:"branch"`
 	CommitState WorktreeCommitState `json:"commitState"`
-	// LastSeen is the last time this worktree was observed on disk.
-	LastSeen time.Time `json:"lastSeen"`
+	LastSeen    time.Time           `json:"lastSeen"`
 }
 
-func (w *Worktree) Key() string { return w.Path }
+var (
+	_ runtime.Object            = &Worktree{}
+	_ metav1.ObjectMetaAccessor = &Worktree{}
+)
 
-// PullRequestStatus represents the lifecycle state of a pull request.
+func (w *Worktree) Key() string                      { return w.Path }
+func (w *Worktree) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
+func (w *Worktree) GetObjectMeta() metav1.Object {
+	return &metav1.ObjectMeta{
+		Name:            w.Path,
+		ResourceVersion: strconv.FormatInt(w.ResourceVersion, 10),
+	}
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+type WorktreeList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Worktree `json:"items"`
+}
+
+var _ runtime.Object = &WorktreeList{}
+
+func (l *WorktreeList) GetObjectKind() schema.ObjectKind { return &l.TypeMeta }
+
 type PullRequestStatus string
 
 const (
@@ -63,7 +64,6 @@ const (
 	PullRequestStatusMerged PullRequestStatus = "merged"
 )
 
-// CIStatus represents the continuous integration check result.
 type CIStatus string
 
 const (
@@ -72,7 +72,6 @@ const (
 	CIStatusPending CIStatus = "pending"
 )
 
-// ReviewStatus represents the code review state of a pull request.
 type ReviewStatus string
 
 const (
@@ -81,65 +80,85 @@ const (
 	ReviewStatusPending          ReviewStatus = "pending"
 )
 
-// PullRequest represents a GitHub pull request being tracked.
 type PullRequest struct {
 	ObjectMeta
-	// Repo is the repository identifier in "org/name" format.
-	Repo string `json:"repo"`
-	// Number is the PR number within the repository.
-	Number int `json:"number"`
-	// Branch is the source branch of this pull request.
-	Branch string `json:"branch"`
-	// URL is the web URL of the pull request.
-	URL string `json:"url"`
-	// Status is the lifecycle state: "open", "closed", or "merged".
-	Status PullRequestStatus `json:"status"`
-	// CIStatus is the aggregate CI check result: "passing", "failing", or "pending".
-	CIStatus CIStatus `json:"ciStatus"`
-	// ReviewStatus is the code review state: "approved", "changes_requested", or "pending".
-	ReviewStatus ReviewStatus `json:"reviewStatus"`
-	// UnresolvedComments is the count of unresolved review comments.
-	UnresolvedComments int `json:"unresolvedComments"`
-	// Author is the GitHub username of the PR author.
-	Author string `json:"author"`
-	// LastSeen is the last time this PR was observed via the GitHub API.
-	LastSeen time.Time `json:"lastSeen"`
+	Repo               string            `json:"repo"`
+	Number             int               `json:"number"`
+	Branch             string            `json:"branch"`
+	URL                string            `json:"url"`
+	Status             PullRequestStatus `json:"status"`
+	CIStatus           CIStatus          `json:"ciStatus"`
+	ReviewStatus       ReviewStatus      `json:"reviewStatus"`
+	UnresolvedComments int               `json:"unresolvedComments"`
+	Author             string            `json:"author"`
+	LastSeen           time.Time         `json:"lastSeen"`
 }
 
-func (p *PullRequest) Key() string { return p.Repo + "#" + strconv.Itoa(p.Number) }
+var (
+	_ runtime.Object            = &PullRequest{}
+	_ metav1.ObjectMetaAccessor = &PullRequest{}
+)
 
-// JiraIssueType is a typed string for Jira issue types.
-// Values are defined by the Jira project configuration (e.g. "Story", "Bug", "Task", "Epic").
+func (p *PullRequest) Key() string                      { return p.Repo + "#" + strconv.Itoa(p.Number) }
+func (p *PullRequest) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
+func (p *PullRequest) GetObjectMeta() metav1.Object {
+	return &metav1.ObjectMeta{
+		Name:            p.Key(),
+		ResourceVersion: strconv.FormatInt(p.ResourceVersion, 10),
+	}
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+type PullRequestList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []PullRequest `json:"items"`
+}
+
+var _ runtime.Object = &PullRequestList{}
+
+func (l *PullRequestList) GetObjectKind() schema.ObjectKind { return &l.TypeMeta }
+
 type JiraIssueType string
-
-// JiraStatus is a typed string for Jira workflow statuses.
-// Values are defined by the Jira project configuration (e.g. "To Do", "In Progress", "Done").
 type JiraStatus string
 
-// JiraTicket represents a Jira issue being tracked.
 type JiraTicket struct {
 	ObjectMeta
-	// TicketKey is the Jira issue key, e.g. "ARO-12345". Used as the primary key.
-	TicketKey string `json:"key"`
-	// Summary is the issue title/summary.
-	Summary string `json:"summary"`
-	// Description is the issue description body.
-	Description string `json:"description"`
-	// Status is the Jira workflow status, e.g. "In Progress", "Done".
-	Status JiraStatus `json:"status"`
-	// IssueType is the Jira issue type, e.g. "Story", "Bug".
-	IssueType JiraIssueType `json:"issueType"`
-	// EpicKey is the parent epic's Jira key, or empty if unlinked.
-	EpicKey string `json:"epicKey"`
-	// LastActivity is the timestamp of the most recent update in Jira.
-	LastActivity time.Time `json:"lastActivity"`
-	// LastSeen is the last time this ticket was observed via the Jira API.
-	LastSeen time.Time `json:"lastSeen"`
+	TicketKey    string        `json:"key"`
+	Summary      string        `json:"summary"`
+	Description  string        `json:"description"`
+	Status       JiraStatus    `json:"status"`
+	IssueType    JiraIssueType `json:"issueType"`
+	EpicKey      string        `json:"epicKey"`
+	LastActivity time.Time     `json:"lastActivity"`
+	LastSeen     time.Time     `json:"lastSeen"`
 }
 
-func (j *JiraTicket) Key() string { return j.TicketKey }
+var (
+	_ runtime.Object            = &JiraTicket{}
+	_ metav1.ObjectMetaAccessor = &JiraTicket{}
+)
 
-// ManualLinkSourceType identifies the kind of source entity in a manual link.
+func (j *JiraTicket) Key() string                      { return j.TicketKey }
+func (j *JiraTicket) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
+func (j *JiraTicket) GetObjectMeta() metav1.Object {
+	return &metav1.ObjectMeta{
+		Name:            j.TicketKey,
+		ResourceVersion: strconv.FormatInt(j.ResourceVersion, 10),
+	}
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+type JiraTicketList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []JiraTicket `json:"items"`
+}
+
+var _ runtime.Object = &JiraTicketList{}
+
+func (l *JiraTicketList) GetObjectKind() schema.ObjectKind { return &l.TypeMeta }
+
 type ManualLinkSourceType string
 
 const (
@@ -147,19 +166,39 @@ const (
 	ManualLinkSourceTypePullRequest ManualLinkSourceType = "pullrequest"
 )
 
-// ManualLink represents a user-created association between a source entity
-// (worktree or pull request) and a Jira ticket.
 type ManualLink struct {
 	ObjectMeta
-	// SourceType identifies the kind of source: "worktree" or "pullrequest".
 	SourceType ManualLinkSourceType `json:"sourceType"`
-	// SourceID is the identifier of the source entity (worktree path or PR key).
-	SourceID string `json:"sourceID"`
-	// JiraKey is the Jira issue key this source is linked to.
-	JiraKey string `json:"jiraKey"`
+	SourceID   string               `json:"sourceID"`
+	JiraKey    string               `json:"jiraKey"`
 }
 
-func (m *ManualLink) Key() string { return string(m.SourceType) + "/" + m.SourceID }
+var (
+	_ runtime.Object            = &ManualLink{}
+	_ metav1.ObjectMetaAccessor = &ManualLink{}
+)
+
+func (m *ManualLink) Key() string                      { return string(m.SourceType) + "/" + m.SourceID }
+func (m *ManualLink) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
+func (m *ManualLink) GetObjectMeta() metav1.Object {
+	return &metav1.ObjectMeta{
+		Name:            m.Key(),
+		ResourceVersion: strconv.FormatInt(m.ResourceVersion, 10),
+	}
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+type ManualLinkList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ManualLink `json:"items"`
+}
+
+var _ runtime.Object = &ManualLinkList{}
+
+func (l *ManualLinkList) GetObjectKind() schema.ObjectKind { return &l.TypeMeta }
+
+// Validation
 
 func (s WorktreeCommitState) Valid() bool {
 	switch s {
@@ -200,10 +239,6 @@ func (s ManualLinkSourceType) Valid() bool {
 	}
 	return false
 }
-
-// JiraStatus and JiraIssueType are open enums defined by Jira project
-// configuration. We validate non-empty only — the set of valid values
-// is not known at compile time.
 
 func (s JiraStatus) Valid() bool    { return len(s) > 0 }
 func (s JiraIssueType) Valid() bool { return len(s) > 0 }

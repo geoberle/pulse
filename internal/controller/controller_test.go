@@ -16,6 +16,15 @@ func testLog() logr.Logger {
 	return funcr.New(func(_, _ string) {}, funcr.Options{})
 }
 
+func awaitEvent[T any](t *testing.T, ch <-chan T, desc string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", desc)
+	}
+}
+
 func TestController_EnqueueAndSync(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -23,11 +32,13 @@ func TestController_EnqueueAndSync(t *testing.T) {
 
 	var mu sync.Mutex
 	synced := make(map[string]int)
+	syncCh := make(chan string, 10)
 
 	c := New("test", testLog(), func(_ context.Context, key string) error {
 		mu.Lock()
 		synced[key]++
 		mu.Unlock()
+		syncCh <- key
 		return nil
 	})
 
@@ -36,7 +47,8 @@ func TestController_EnqueueAndSync(t *testing.T) {
 	c.Enqueue("key-1")
 	c.Enqueue("key-2")
 
-	time.Sleep(100 * time.Millisecond)
+	awaitEvent(t, syncCh, "key-1 sync")
+	awaitEvent(t, syncCh, "key-2 sync")
 
 	mu.Lock()
 	if synced["key-1"] != 1 {
@@ -53,6 +65,8 @@ func TestController_ErrorRequeues(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	successCh := make(chan struct{}, 1)
+
 	var attempts atomic.Int32
 
 	c := New("test-retry", testLog(), func(_ context.Context, _ string) error {
@@ -60,6 +74,7 @@ func TestController_ErrorRequeues(t *testing.T) {
 		if n <= 2 {
 			return fmt.Errorf("transient error")
 		}
+		successCh <- struct{}{}
 		return nil
 	})
 
@@ -67,7 +82,7 @@ func TestController_ErrorRequeues(t *testing.T) {
 
 	c.Enqueue("retry-key")
 
-	time.Sleep(500 * time.Millisecond)
+	awaitEvent(t, successCh, "successful retry")
 
 	got := attempts.Load()
 	if got < 3 {

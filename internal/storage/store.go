@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"k8s.io/apimachinery/pkg/watch"
+
 	"github.com/geoberle/pulse/internal/api"
 
 	_ "modernc.org/sqlite"
@@ -18,6 +20,11 @@ type Store struct {
 	pullRequests *pullRequestClient
 	jiraTickets  *jiraTicketClient
 	manualLinks  *manualLinkClient
+
+	wtBroadcaster *watch.Broadcaster
+	prBroadcaster *watch.Broadcaster
+	jtBroadcaster *watch.Broadcaster
+	mlBroadcaster *watch.Broadcaster
 }
 
 func New(ctx context.Context, dbPath string) (*Store, error) {
@@ -55,30 +62,56 @@ func New(ctx context.Context, dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
-	s := &Store{db: db}
-	s.worktrees = &worktreeClient{db: db}
-	s.pullRequests = &pullRequestClient{db: db}
-	s.jiraTickets = &jiraTicketClient{db: db}
-	s.manualLinks = &manualLinkClient{db: db}
+	s := &Store{
+		db:            db,
+		wtBroadcaster: watch.NewBroadcaster(100, watch.WaitIfChannelFull),
+		prBroadcaster: watch.NewBroadcaster(100, watch.WaitIfChannelFull),
+		jtBroadcaster: watch.NewBroadcaster(100, watch.WaitIfChannelFull),
+		mlBroadcaster: watch.NewBroadcaster(100, watch.WaitIfChannelFull),
+	}
+	s.worktrees = &worktreeClient{db: db, broadcaster: s.wtBroadcaster}
+	s.pullRequests = &pullRequestClient{db: db, broadcaster: s.prBroadcaster}
+	s.jiraTickets = &jiraTicketClient{db: db, broadcaster: s.jtBroadcaster}
+	s.manualLinks = &manualLinkClient{db: db, broadcaster: s.mlBroadcaster}
 	return s, nil
 }
 
 func (s *Store) Close() error {
+	s.wtBroadcaster.Shutdown()
+	s.prBroadcaster.Shutdown()
+	s.jtBroadcaster.Shutdown()
+	s.mlBroadcaster.Shutdown()
 	return s.db.Close()
 }
 
-func (s *Store) Worktrees() Table[*api.Worktree] {
+func (s *Store) WatchWorktrees() (watch.Interface, error) {
+	return s.wtBroadcaster.Watch()
+}
+
+func (s *Store) WatchPullRequests() (watch.Interface, error) {
+	return s.prBroadcaster.Watch()
+}
+
+func (s *Store) WatchJiraTickets() (watch.Interface, error) {
+	return s.jtBroadcaster.Watch()
+}
+
+func (s *Store) WatchManualLinks() (watch.Interface, error) {
+	return s.mlBroadcaster.Watch()
+}
+
+func (s *Store) Worktrees() Client[*api.Worktree] {
 	return s.worktrees
 }
 
-func (s *Store) PullRequests() Table[*api.PullRequest] {
+func (s *Store) PullRequests() Client[*api.PullRequest] {
 	return s.pullRequests
 }
 
-func (s *Store) JiraTickets() Table[*api.JiraTicket] {
+func (s *Store) JiraTickets() Client[*api.JiraTicket] {
 	return s.jiraTickets
 }
 
-func (s *Store) ManualLinks() Table[*api.ManualLink] {
+func (s *Store) ManualLinks() Client[*api.ManualLink] {
 	return s.manualLinks
 }

@@ -7,11 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/watch"
+
 	"github.com/geoberle/pulse/internal/api"
 )
 
 type manualLinkClient struct {
-	db *sql.DB
+	db          *sql.DB
+	broadcaster *watch.Broadcaster
 }
 
 func (c *manualLinkClient) Get(ctx context.Context, key string) (*api.ManualLink, error) {
@@ -57,7 +60,12 @@ func (c *manualLinkClient) Create(ctx context.Context, obj *api.ManualLink) (*ap
 	if err != nil {
 		return nil, fmt.Errorf("create manual link %s/%s: %w", obj.SourceType, obj.SourceID, err)
 	}
-	return c.Get(ctx, obj.Key())
+	created, err := c.Get(ctx, obj.Key())
+	if err != nil {
+		return nil, err
+	}
+	_ = c.broadcaster.Action(watch.Added, created)
+	return created, nil
 }
 
 func (c *manualLinkClient) Update(ctx context.Context, obj *api.ManualLink) (*api.ManualLink, error) {
@@ -78,10 +86,19 @@ func (c *manualLinkClient) Update(ctx context.Context, obj *api.ManualLink) (*ap
 		}
 		return nil, ErrConflict
 	}
-	return c.Get(ctx, obj.Key())
+	updated, err := c.Get(ctx, obj.Key())
+	if err != nil {
+		return nil, err
+	}
+	_ = c.broadcaster.Action(watch.Modified, updated)
+	return updated, nil
 }
 
 func (c *manualLinkClient) Delete(ctx context.Context, key string) error {
+	obj, err := c.Get(ctx, key)
+	if err != nil {
+		return err
+	}
 	sourceType, sourceID, err := parseManualLinkKey(key)
 	if err != nil {
 		return err
@@ -95,6 +112,7 @@ func (c *manualLinkClient) Delete(ctx context.Context, key string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = c.broadcaster.Action(watch.Deleted, obj)
 	return nil
 }
 

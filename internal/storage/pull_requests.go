@@ -8,11 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/watch"
+
 	"github.com/geoberle/pulse/internal/api"
 )
 
 type pullRequestClient struct {
-	db *sql.DB
+	db          *sql.DB
+	broadcaster *watch.Broadcaster
 }
 
 func (c *pullRequestClient) Get(ctx context.Context, key string) (*api.PullRequest, error) {
@@ -63,7 +66,12 @@ func (c *pullRequestClient) Create(ctx context.Context, obj *api.PullRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("create pull request %s#%d: %w", obj.Repo, obj.Number, err)
 	}
-	return c.Get(ctx, obj.Key())
+	created, err := c.Get(ctx, obj.Key())
+	if err != nil {
+		return nil, err
+	}
+	_ = c.broadcaster.Action(watch.Added, created)
+	return created, nil
 }
 
 func (c *pullRequestClient) Update(ctx context.Context, obj *api.PullRequest) (*api.PullRequest, error) {
@@ -89,10 +97,19 @@ func (c *pullRequestClient) Update(ctx context.Context, obj *api.PullRequest) (*
 		}
 		return nil, ErrConflict
 	}
-	return c.Get(ctx, obj.Key())
+	updated, err := c.Get(ctx, obj.Key())
+	if err != nil {
+		return nil, err
+	}
+	_ = c.broadcaster.Action(watch.Modified, updated)
+	return updated, nil
 }
 
 func (c *pullRequestClient) Delete(ctx context.Context, key string) error {
+	obj, err := c.Get(ctx, key)
+	if err != nil {
+		return err
+	}
 	repo, number, err := parsePRKey(key)
 	if err != nil {
 		return err
@@ -106,6 +123,7 @@ func (c *pullRequestClient) Delete(ctx context.Context, key string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = c.broadcaster.Action(watch.Deleted, obj)
 	return nil
 }
 

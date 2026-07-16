@@ -6,20 +6,27 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 )
 
+type Controller interface {
+	QueueForInformers(resyncDuration time.Duration, notifiers ...cache.SharedIndexInformer) error
+	SyncOnce(ctx context.Context, key string) error
+	Run(ctx context.Context, workers int)
+}
+
 type SyncFunc func(ctx context.Context, key string) error
 
-type Controller struct {
+type BaseController struct {
 	name   string
 	queue  workqueue.TypedRateLimitingInterface[string]
 	syncFn SyncFunc
 	log    logr.Logger
 }
 
-func New(name string, log logr.Logger, syncFn SyncFunc) *Controller {
-	return &Controller{
+func New(name string, log logr.Logger, syncFn SyncFunc) *BaseController {
+	return &BaseController{
 		name: name,
 		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.DefaultTypedControllerRateLimiter[string](),
@@ -30,11 +37,48 @@ func New(name string, log logr.Logger, syncFn SyncFunc) *Controller {
 	}
 }
 
-func (c *Controller) Enqueue(key string) {
+func (c *BaseController) QueueForInformers(resyncDuration time.Duration, notifiers ...cache.SharedIndexInformer) error {
+	for _, notifier := range notifiers {
+		_, err := notifier.AddEventHandlerWithOptions(
+			cache.ResourceEventHandlerFuncs{
+				AddFunc: func(obj interface{}) {
+					if key, err := cache.MetaNamespaceKeyFunc(obj); err == nil {
+						c.queue.Add(key)
+					}
+				},
+				UpdateFunc: func(_, obj interface{}) {
+					if key, err := cache.MetaNamespaceKeyFunc(obj); err == nil {
+						c.queue.Add(key)
+					}
+				},
+				DeleteFunc: func(obj interface{}) {
+					if key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj); err == nil {
+						c.queue.Add(key)
+					}
+				},
+			},
+			cache.HandlerOptions{ResyncPeriod: &resyncDuration},
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *BaseController) SyncOnce(ctx context.Context, key string) error {
+	return c.syncFn(ctx, key)
+}
+
+func (c *BaseController) Enqueue(key string) {
 	c.queue.Add(key)
 }
 
-func (c *Controller) Run(ctx context.Context, workers int) {
+func (c *BaseController) EnqueueAfter(key string, delay time.Duration) {
+	c.queue.AddAfter(key, delay)
+}
+
+func (c *BaseController) Run(ctx context.Context, workers int) {
 	c.log.Info("starting controller", "workers", workers)
 
 	var wg sync.WaitGroup
@@ -53,7 +97,7 @@ func (c *Controller) Run(ctx context.Context, workers int) {
 	wg.Wait()
 }
 
-func (c *Controller) processNext(ctx context.Context) bool {
+func (c *BaseController) processNext(ctx context.Context) bool {
 	key, shutdown := c.queue.Get()
 	if shutdown {
 		return false
@@ -68,8 +112,4 @@ func (c *Controller) processNext(ctx context.Context) bool {
 
 	c.queue.Forget(key)
 	return true
-}
-
-func (c *Controller) EnqueueAfter(key string, delay time.Duration) {
-	c.queue.AddAfter(key, delay)
 }

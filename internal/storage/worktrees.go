@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/watch"
+
 	"github.com/geoberle/pulse/internal/api"
 )
 
 type worktreeClient struct {
-	db *sql.DB
+	db          *sql.DB
+	broadcaster *watch.Broadcaster
 }
 
 func (c *worktreeClient) Get(ctx context.Context, key string) (*api.Worktree, error) {
@@ -53,7 +56,12 @@ func (c *worktreeClient) Create(ctx context.Context, obj *api.Worktree) (*api.Wo
 	if err != nil {
 		return nil, fmt.Errorf("create worktree %s: %w", obj.Path, err)
 	}
-	return c.Get(ctx, obj.Path)
+	created, err := c.Get(ctx, obj.Path)
+	if err != nil {
+		return nil, err
+	}
+	_ = c.broadcaster.Action(watch.Added, created)
+	return created, nil
 }
 
 func (c *worktreeClient) Update(ctx context.Context, obj *api.Worktree) (*api.Worktree, error) {
@@ -77,10 +85,19 @@ func (c *worktreeClient) Update(ctx context.Context, obj *api.Worktree) (*api.Wo
 		}
 		return nil, ErrConflict
 	}
-	return c.Get(ctx, obj.Path)
+	updated, err := c.Get(ctx, obj.Path)
+	if err != nil {
+		return nil, err
+	}
+	_ = c.broadcaster.Action(watch.Modified, updated)
+	return updated, nil
 }
 
 func (c *worktreeClient) Delete(ctx context.Context, key string) error {
+	obj, err := c.Get(ctx, key)
+	if err != nil {
+		return err
+	}
 	res, err := c.db.ExecContext(ctx, "DELETE FROM worktrees WHERE path = ?", key)
 	if err != nil {
 		return fmt.Errorf("delete worktree %s: %w", key, err)
@@ -89,6 +106,7 @@ func (c *worktreeClient) Delete(ctx context.Context, key string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = c.broadcaster.Action(watch.Deleted, obj)
 	return nil
 }
 

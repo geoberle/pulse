@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/watch"
+
 	"github.com/geoberle/pulse/internal/api"
 )
 
 type jiraTicketClient struct {
-	db *sql.DB
+	db          *sql.DB
+	broadcaster *watch.Broadcaster
 }
 
 func (c *jiraTicketClient) Get(ctx context.Context, key string) (*api.JiraTicket, error) {
@@ -57,7 +60,12 @@ func (c *jiraTicketClient) Create(ctx context.Context, obj *api.JiraTicket) (*ap
 	if err != nil {
 		return nil, fmt.Errorf("create jira ticket %s: %w", obj.TicketKey, err)
 	}
-	return c.Get(ctx, obj.TicketKey)
+	created, err := c.Get(ctx, obj.TicketKey)
+	if err != nil {
+		return nil, err
+	}
+	_ = c.broadcaster.Action(watch.Added, created)
+	return created, nil
 }
 
 func (c *jiraTicketClient) Update(ctx context.Context, obj *api.JiraTicket) (*api.JiraTicket, error) {
@@ -83,10 +91,19 @@ func (c *jiraTicketClient) Update(ctx context.Context, obj *api.JiraTicket) (*ap
 		}
 		return nil, ErrConflict
 	}
-	return c.Get(ctx, obj.TicketKey)
+	updated, err := c.Get(ctx, obj.TicketKey)
+	if err != nil {
+		return nil, err
+	}
+	_ = c.broadcaster.Action(watch.Modified, updated)
+	return updated, nil
 }
 
 func (c *jiraTicketClient) Delete(ctx context.Context, key string) error {
+	obj, err := c.Get(ctx, key)
+	if err != nil {
+		return err
+	}
 	res, err := c.db.ExecContext(ctx, "DELETE FROM jira_tickets WHERE key = ?", key)
 	if err != nil {
 		return fmt.Errorf("delete jira ticket %s: %w", key, err)
@@ -95,6 +112,7 @@ func (c *jiraTicketClient) Delete(ctx context.Context, key string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
+	_ = c.broadcaster.Action(watch.Deleted, obj)
 	return nil
 }
 
