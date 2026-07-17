@@ -11,8 +11,11 @@ import (
 )
 
 type ObjectMeta struct {
-	ResourceVersion   int64     `json:"resourceVersion"`
-	CreationTimestamp time.Time `json:"creationTimestamp"`
+	Name              string     `json:"name"`
+	ResourceVersion   int64      `json:"resourceVersion"`
+	CreationTimestamp time.Time  `json:"creationTimestamp"`
+	DeletionTimestamp *time.Time `json:"deletionTimestamp,omitempty"`
+	Finalizers        []string   `json:"finalizers,omitempty"`
 }
 
 type WorktreeCommitState string
@@ -22,13 +25,12 @@ const (
 	WorktreeCommitStateHasCommits WorktreeCommitState = "HasCommits"
 )
 
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type Worktree struct {
 	ObjectMeta
-	Path        string              `json:"path"`
 	Repo        string              `json:"repo"`
 	Branch      string              `json:"branch"`
 	CommitState WorktreeCommitState `json:"commitState"`
-	LastSeen    time.Time           `json:"lastSeen"`
 }
 
 var (
@@ -36,13 +38,18 @@ var (
 	_ metav1.ObjectMetaAccessor = &Worktree{}
 )
 
-func (w *Worktree) Key() string                      { return w.Path }
 func (w *Worktree) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
 func (w *Worktree) GetObjectMeta() metav1.Object {
-	return &metav1.ObjectMeta{
-		Name:            w.Path,
-		ResourceVersion: strconv.FormatInt(w.ResourceVersion, 10),
+	om := &metav1.ObjectMeta{
+		Name:              w.Name,
+		ResourceVersion:   strconv.FormatInt(w.ResourceVersion, 10),
+		CreationTimestamp: metav1.NewTime(w.CreationTimestamp),
+		Finalizers:        w.Finalizers,
 	}
+	if w.DeletionTimestamp != nil {
+		om.DeletionTimestamp = &metav1.Time{Time: *w.DeletionTimestamp}
+	}
+	return om
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -80,6 +87,11 @@ const (
 	ReviewStatusPending          ReviewStatus = "pending"
 )
 
+func PullRequestName(repo string, number int) string {
+	return repo + "#" + strconv.Itoa(number)
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type PullRequest struct {
 	ObjectMeta
 	Repo               string            `json:"repo"`
@@ -91,7 +103,6 @@ type PullRequest struct {
 	ReviewStatus       ReviewStatus      `json:"reviewStatus"`
 	UnresolvedComments int               `json:"unresolvedComments"`
 	Author             string            `json:"author"`
-	LastSeen           time.Time         `json:"lastSeen"`
 }
 
 var (
@@ -99,13 +110,18 @@ var (
 	_ metav1.ObjectMetaAccessor = &PullRequest{}
 )
 
-func (p *PullRequest) Key() string                      { return p.Repo + "#" + strconv.Itoa(p.Number) }
 func (p *PullRequest) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
 func (p *PullRequest) GetObjectMeta() metav1.Object {
-	return &metav1.ObjectMeta{
-		Name:            p.Key(),
-		ResourceVersion: strconv.FormatInt(p.ResourceVersion, 10),
+	om := &metav1.ObjectMeta{
+		Name:              p.Name,
+		ResourceVersion:   strconv.FormatInt(p.ResourceVersion, 10),
+		CreationTimestamp: metav1.NewTime(p.CreationTimestamp),
+		Finalizers:        p.Finalizers,
 	}
+	if p.DeletionTimestamp != nil {
+		om.DeletionTimestamp = &metav1.Time{Time: *p.DeletionTimestamp}
+	}
+	return om
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -122,16 +138,15 @@ func (l *PullRequestList) GetObjectKind() schema.ObjectKind { return &l.TypeMeta
 type JiraIssueType string
 type JiraStatus string
 
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type JiraTicket struct {
 	ObjectMeta
-	TicketKey    string        `json:"key"`
 	Summary      string        `json:"summary"`
 	Description  string        `json:"description"`
 	Status       JiraStatus    `json:"status"`
 	IssueType    JiraIssueType `json:"issueType"`
 	EpicKey      string        `json:"epicKey"`
 	LastActivity time.Time     `json:"lastActivity"`
-	LastSeen     time.Time     `json:"lastSeen"`
 }
 
 var (
@@ -139,13 +154,18 @@ var (
 	_ metav1.ObjectMetaAccessor = &JiraTicket{}
 )
 
-func (j *JiraTicket) Key() string                      { return j.TicketKey }
 func (j *JiraTicket) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
 func (j *JiraTicket) GetObjectMeta() metav1.Object {
-	return &metav1.ObjectMeta{
-		Name:            j.TicketKey,
-		ResourceVersion: strconv.FormatInt(j.ResourceVersion, 10),
+	om := &metav1.ObjectMeta{
+		Name:              j.Name,
+		ResourceVersion:   strconv.FormatInt(j.ResourceVersion, 10),
+		CreationTimestamp: metav1.NewTime(j.CreationTimestamp),
+		Finalizers:        j.Finalizers,
 	}
+	if j.DeletionTimestamp != nil {
+		om.DeletionTimestamp = &metav1.Time{Time: *j.DeletionTimestamp}
+	}
+	return om
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -166,6 +186,11 @@ const (
 	ManualLinkSourceTypePullRequest ManualLinkSourceType = "pullrequest"
 )
 
+func ManualLinkName(sourceType ManualLinkSourceType, sourceID string) string {
+	return string(sourceType) + "/" + sourceID
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ManualLink struct {
 	ObjectMeta
 	SourceType ManualLinkSourceType `json:"sourceType"`
@@ -178,13 +203,18 @@ var (
 	_ metav1.ObjectMetaAccessor = &ManualLink{}
 )
 
-func (m *ManualLink) Key() string                      { return string(m.SourceType) + "/" + m.SourceID }
 func (m *ManualLink) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
 func (m *ManualLink) GetObjectMeta() metav1.Object {
-	return &metav1.ObjectMeta{
-		Name:            m.Key(),
-		ResourceVersion: strconv.FormatInt(m.ResourceVersion, 10),
+	om := &metav1.ObjectMeta{
+		Name:              m.Name,
+		ResourceVersion:   strconv.FormatInt(m.ResourceVersion, 10),
+		CreationTimestamp: metav1.NewTime(m.CreationTimestamp),
+		Finalizers:        m.Finalizers,
 	}
+	if m.DeletionTimestamp != nil {
+		om.DeletionTimestamp = &metav1.Time{Time: *m.DeletionTimestamp}
+	}
+	return om
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -199,6 +229,20 @@ var _ runtime.Object = &ManualLinkList{}
 func (l *ManualLinkList) GetObjectKind() schema.ObjectKind { return &l.TypeMeta }
 
 // Validation
+
+func (o *ObjectMeta) Validate() error {
+	seen := make(map[string]struct{}, len(o.Finalizers))
+	for _, f := range o.Finalizers {
+		if len(f) == 0 {
+			return fmt.Errorf("empty finalizer")
+		}
+		if _, ok := seen[f]; ok {
+			return fmt.Errorf("duplicate finalizer %q", f)
+		}
+		seen[f] = struct{}{}
+	}
+	return nil
+}
 
 func (s WorktreeCommitState) Valid() bool {
 	switch s {
@@ -244,8 +288,11 @@ func (s JiraStatus) Valid() bool    { return len(s) > 0 }
 func (s JiraIssueType) Valid() bool { return len(s) > 0 }
 
 func (w *Worktree) Validate() error {
-	if len(w.Path) == 0 {
-		return fmt.Errorf("path is required")
+	if err := w.ObjectMeta.Validate(); err != nil {
+		return err
+	}
+	if len(w.Name) == 0 {
+		return fmt.Errorf("name is required")
 	}
 	if len(w.Repo) == 0 {
 		return fmt.Errorf("repo is required")
@@ -260,6 +307,12 @@ func (w *Worktree) Validate() error {
 }
 
 func (p *PullRequest) Validate() error {
+	if err := p.ObjectMeta.Validate(); err != nil {
+		return err
+	}
+	if len(p.Name) == 0 {
+		return fmt.Errorf("name is required")
+	}
 	if len(p.Repo) == 0 {
 		return fmt.Errorf("repo is required")
 	}
@@ -279,8 +332,11 @@ func (p *PullRequest) Validate() error {
 }
 
 func (j *JiraTicket) Validate() error {
-	if len(j.TicketKey) == 0 {
-		return fmt.Errorf("ticket key is required")
+	if err := j.ObjectMeta.Validate(); err != nil {
+		return err
+	}
+	if len(j.Name) == 0 {
+		return fmt.Errorf("name is required")
 	}
 	if !j.Status.Valid() {
 		return fmt.Errorf("status is required")
@@ -292,6 +348,12 @@ func (j *JiraTicket) Validate() error {
 }
 
 func (m *ManualLink) Validate() error {
+	if err := m.ObjectMeta.Validate(); err != nil {
+		return err
+	}
+	if len(m.Name) == 0 {
+		return fmt.Errorf("name is required")
+	}
 	if !m.SourceType.Valid() {
 		return fmt.Errorf("invalid source type %q", m.SourceType)
 	}

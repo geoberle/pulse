@@ -10,16 +10,18 @@ import (
 var migrations = []string{
 	// migration 001: initial schema
 	`CREATE TABLE worktrees (
-		path TEXT PRIMARY KEY,
+		name TEXT PRIMARY KEY,
 		repo TEXT NOT NULL,
 		branch TEXT NOT NULL,
 		commit_state TEXT NOT NULL DEFAULT '',
-		last_seen TEXT NOT NULL,
+		deletion_timestamp TEXT,
+		finalizers TEXT NOT NULL DEFAULT '[]',
 		resource_version INTEGER NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL
 	);
 
 	CREATE TABLE pull_requests (
+		name TEXT PRIMARY KEY,
 		repo TEXT NOT NULL,
 		number INTEGER NOT NULL,
 		branch TEXT NOT NULL,
@@ -29,36 +31,38 @@ var migrations = []string{
 		review_status TEXT NOT NULL,
 		unresolved_comments INTEGER NOT NULL DEFAULT 0,
 		author TEXT NOT NULL,
-		last_seen TEXT NOT NULL,
+		deletion_timestamp TEXT,
+		finalizers TEXT NOT NULL DEFAULT '[]',
 		resource_version INTEGER NOT NULL DEFAULT 1,
-		created_at TEXT NOT NULL,
-		PRIMARY KEY (repo, number)
+		created_at TEXT NOT NULL
 	);
 
 	CREATE TABLE jira_tickets (
-		key TEXT PRIMARY KEY,
+		name TEXT PRIMARY KEY,
 		summary TEXT NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
 		status TEXT NOT NULL,
 		issue_type TEXT NOT NULL,
 		epic_key TEXT NOT NULL DEFAULT '',
 		last_activity TEXT NOT NULL,
-		last_seen TEXT NOT NULL,
+		deletion_timestamp TEXT,
+		finalizers TEXT NOT NULL DEFAULT '[]',
 		resource_version INTEGER NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL
 	);
 
 	CREATE TABLE manual_links (
+		name TEXT PRIMARY KEY,
 		source_type TEXT NOT NULL,
 		source_id TEXT NOT NULL,
 		jira_key TEXT NOT NULL,
+		deletion_timestamp TEXT,
+		finalizers TEXT NOT NULL DEFAULT '[]',
 		resource_version INTEGER NOT NULL DEFAULT 1,
-		created_at TEXT NOT NULL,
-		PRIMARY KEY (source_type, source_id)
-	);`,
+		created_at TEXT NOT NULL
+	);
 
-	// migration 002: index on manual_links.jira_key for reverse lookups
-	`CREATE INDEX idx_manual_links_jira_key ON manual_links(jira_key);`,
+	CREATE INDEX idx_manual_links_jira_key ON manual_links(jira_key);`,
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {

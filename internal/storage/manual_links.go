@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/watch"
@@ -18,20 +17,18 @@ type manualLinkClient struct {
 }
 
 func (c *manualLinkClient) Get(ctx context.Context, key string) (*api.ManualLink, error) {
-	sourceType, sourceID, err := parseManualLinkKey(key)
-	if err != nil {
-		return nil, err
-	}
 	row := c.db.QueryRowContext(ctx,
-		`SELECT source_type, source_id, jira_key, resource_version, created_at
-		FROM manual_links WHERE source_type = ? AND source_id = ?`, sourceType, sourceID)
+		`SELECT name, source_type, source_id, jira_key, deletion_timestamp, finalizers,
+		resource_version, created_at
+		FROM manual_links WHERE name = ?`, key)
 	return scanManualLink(row)
 }
 
 func (c *manualLinkClient) List(ctx context.Context) ([]*api.ManualLink, error) {
 	rows, err := c.db.QueryContext(ctx,
-		`SELECT source_type, source_id, jira_key, resource_version, created_at
-		FROM manual_links ORDER BY source_type, source_id`)
+		`SELECT name, source_type, source_id, jira_key, deletion_timestamp, finalizers,
+		resource_version, created_at
+		FROM manual_links ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list manual links: %w", err)
 	}
@@ -49,18 +46,22 @@ func (c *manualLinkClient) List(ctx context.Context) ([]*api.ManualLink, error) 
 }
 
 func (c *manualLinkClient) Create(ctx context.Context, obj *api.ManualLink) (*api.ManualLink, error) {
+	obj.Name = api.ManualLinkName(obj.SourceType, obj.SourceID)
 	if err := obj.Validate(); err != nil {
 		return nil, fmt.Errorf("validate manual link: %w", err)
 	}
 	now := time.Now().UTC()
+	finalizersJSON := marshalFinalizers(obj.Finalizers)
 	_, err := c.db.ExecContext(ctx,
-		`INSERT INTO manual_links (source_type, source_id, jira_key, resource_version, created_at)
-		VALUES (?, ?, ?, 1, ?)`,
-		string(obj.SourceType), obj.SourceID, obj.JiraKey, now.Format(time.RFC3339Nano))
+		`INSERT INTO manual_links (name, source_type, source_id, jira_key, finalizers,
+		resource_version, created_at)
+		VALUES (?, ?, ?, ?, ?, 1, ?)`,
+		obj.Name, string(obj.SourceType), obj.SourceID, obj.JiraKey,
+		finalizersJSON, now.Format(time.RFC3339Nano))
 	if err != nil {
-		return nil, fmt.Errorf("create manual link %s/%s: %w", obj.SourceType, obj.SourceID, err)
+		return nil, fmt.Errorf("create manual link %s: %w", obj.Name, err)
 	}
-	created, err := c.Get(ctx, obj.Key())
+	created, err := c.Get(ctx, obj.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -72,67 +73,93 @@ func (c *manualLinkClient) Update(ctx context.Context, obj *api.ManualLink) (*ap
 	if err := obj.Validate(); err != nil {
 		return nil, fmt.Errorf("validate manual link: %w", err)
 	}
+	finalizersJSON := marshalFinalizers(obj.Finalizers)
+	var deletionTS *string
+	if obj.DeletionTimestamp != nil {
+		s := obj.DeletionTimestamp.UTC().Format(time.RFC3339Nano)
+		deletionTS = &s
+	}
 	res, err := c.db.ExecContext(ctx,
-		`UPDATE manual_links SET jira_key = ?, resource_version = resource_version + 1
-		WHERE source_type = ? AND source_id = ? AND resource_version = ?`,
-		obj.JiraKey, string(obj.SourceType), obj.SourceID, obj.ResourceVersion)
+		`UPDATE manual_links SET source_type = ?, source_id = ?, jira_key = ?,
+		deletion_timestamp = ?, finalizers = ?,
+		resource_version = resource_version + 1
+		WHERE name = ? AND resource_version = ?`,
+		string(obj.SourceType), obj.SourceID, obj.JiraKey,
+		deletionTS, finalizersJSON,
+		obj.Name, obj.ResourceVersion)
 	if err != nil {
-		return nil, fmt.Errorf("update manual link %s/%s: %w", obj.SourceType, obj.SourceID, err)
+		return nil, fmt.Errorf("update manual link %s: %w", obj.Name, err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		if _, err := c.Get(ctx, obj.Key()); err != nil {
+		if _, err := c.Get(ctx, obj.Name); err != nil {
 			return nil, ErrNotFound
 		}
 		return nil, ErrConflict
 	}
-	updated, err := c.Get(ctx, obj.Key())
+	updated, err := c.Get(ctx, obj.Name)
 	if err != nil {
 		return nil, err
+	}
+	if updated.DeletionTimestamp != nil && len(updated.Finalizers) == 0 {
+		if _, err := c.db.ExecContext(ctx, "DELETE FROM manual_links WHERE name = ?", obj.Name); err != nil {
+			return nil, fmt.Errorf("garbage collect manual link %s: %w", obj.Name, err)
+		}
+		_ = c.broadcaster.Action(watch.Deleted, updated)
+		return updated, nil
 	}
 	_ = c.broadcaster.Action(watch.Modified, updated)
 	return updated, nil
 }
 
 func (c *manualLinkClient) Delete(ctx context.Context, key string) error {
-	obj, err := c.Get(ctx, key)
-	if err != nil {
-		return err
+	for range 2 {
+		obj, err := c.Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		if obj.DeletionTimestamp != nil {
+			return nil
+		}
+		if len(obj.Finalizers) > 0 {
+			now := time.Now().UTC()
+			res, err := c.db.ExecContext(ctx,
+				`UPDATE manual_links SET deletion_timestamp = ?, resource_version = resource_version + 1
+				WHERE name = ? AND resource_version = ?`,
+				now.Format(time.RFC3339Nano), key, obj.ResourceVersion)
+			if err != nil {
+				return fmt.Errorf("soft delete manual link %s: %w", key, err)
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				continue
+			}
+			updated, err := c.Get(ctx, key)
+			if err != nil {
+				return err
+			}
+			_ = c.broadcaster.Action(watch.Modified, updated)
+			return nil
+		}
+		res, err := c.db.ExecContext(ctx, "DELETE FROM manual_links WHERE name = ?", key)
+		if err != nil {
+			return fmt.Errorf("delete manual link %s: %w", key, err)
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return ErrNotFound
+		}
+		_ = c.broadcaster.Action(watch.Deleted, obj)
+		return nil
 	}
-	sourceType, sourceID, err := parseManualLinkKey(key)
-	if err != nil {
-		return err
-	}
-	res, err := c.db.ExecContext(ctx,
-		"DELETE FROM manual_links WHERE source_type = ? AND source_id = ?", sourceType, sourceID)
-	if err != nil {
-		return fmt.Errorf("delete manual link %s: %w", key, err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
-	}
-	_ = c.broadcaster.Action(watch.Deleted, obj)
-	return nil
-}
-
-func parseManualLinkKey(key string) (string, string, error) {
-	idx := strings.Index(key, "/")
-	if idx < 0 {
-		return "", "", fmt.Errorf("invalid manual link key %q: expected sourceType/sourceID", key)
-	}
-	sourceType, sourceID := key[:idx], key[idx+1:]
-	if len(sourceType) == 0 || len(sourceID) == 0 {
-		return "", "", fmt.Errorf("invalid manual link key %q: empty source type or source ID", key)
-	}
-	return sourceType, sourceID, nil
+	return ErrConflict
 }
 
 func scanManualLink(row *sql.Row) (*api.ManualLink, error) {
 	var ml api.ManualLink
-	var sourceType, createdAt string
-	err := row.Scan(&sourceType, &ml.SourceID, &ml.JiraKey,
-		&ml.ResourceVersion, &createdAt)
+	var sourceType, finalizersJSON, createdAt string
+	var deletionTS sql.NullString
+	err := row.Scan(&ml.Name, &sourceType, &ml.SourceID, &ml.JiraKey,
+		&deletionTS, &finalizersJSON, &ml.ResourceVersion, &createdAt)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -143,18 +170,18 @@ func scanManualLink(row *sql.Row) (*api.ManualLink, error) {
 	if !ml.SourceType.Valid() {
 		return nil, fmt.Errorf("invalid manual link source_type %q", sourceType)
 	}
-	var parseErr error
-	if ml.CreationTimestamp, parseErr = time.Parse(time.RFC3339Nano, createdAt); parseErr != nil {
-		return nil, fmt.Errorf("parse manual link created_at: %w", parseErr)
+	if err := parseScanFields(&ml.ObjectMeta, deletionTS, finalizersJSON, createdAt); err != nil {
+		return nil, fmt.Errorf("manual link %s: %w", ml.Name, err)
 	}
 	return &ml, nil
 }
 
 func scanManualLinkRow(rows *sql.Rows) (*api.ManualLink, error) {
 	var ml api.ManualLink
-	var sourceType, createdAt string
-	err := rows.Scan(&sourceType, &ml.SourceID, &ml.JiraKey,
-		&ml.ResourceVersion, &createdAt)
+	var sourceType, finalizersJSON, createdAt string
+	var deletionTS sql.NullString
+	err := rows.Scan(&ml.Name, &sourceType, &ml.SourceID, &ml.JiraKey,
+		&deletionTS, &finalizersJSON, &ml.ResourceVersion, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("scan manual link row: %w", err)
 	}
@@ -162,9 +189,8 @@ func scanManualLinkRow(rows *sql.Rows) (*api.ManualLink, error) {
 	if !ml.SourceType.Valid() {
 		return nil, fmt.Errorf("invalid manual link source_type %q", sourceType)
 	}
-	var parseErr error
-	if ml.CreationTimestamp, parseErr = time.Parse(time.RFC3339Nano, createdAt); parseErr != nil {
-		return nil, fmt.Errorf("parse manual link created_at: %w", parseErr)
+	if err := parseScanFields(&ml.ObjectMeta, deletionTS, finalizersJSON, createdAt); err != nil {
+		return nil, fmt.Errorf("manual link %s: %w", ml.Name, err)
 	}
 	return &ml, nil
 }
