@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -18,15 +19,17 @@ type worktreeClient struct {
 
 func (c *worktreeClient) Get(ctx context.Context, key string) (*api.Worktree, error) {
 	row := c.db.QueryRowContext(ctx,
-		`SELECT path, repo, branch, commit_state, last_seen, resource_version, created_at
-		FROM worktrees WHERE path = ?`, key)
+		`SELECT name, repo, branch, commit_state, deletion_timestamp, finalizers,
+		resource_version, created_at
+		FROM worktrees WHERE name = ?`, key)
 	return scanWorktree(row)
 }
 
 func (c *worktreeClient) List(ctx context.Context) ([]*api.Worktree, error) {
 	rows, err := c.db.QueryContext(ctx,
-		`SELECT path, repo, branch, commit_state, last_seen, resource_version, created_at
-		FROM worktrees ORDER BY path`)
+		`SELECT name, repo, branch, commit_state, deletion_timestamp, finalizers,
+		resource_version, created_at
+		FROM worktrees ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list worktrees: %w", err)
 	}
@@ -48,15 +51,16 @@ func (c *worktreeClient) Create(ctx context.Context, obj *api.Worktree) (*api.Wo
 		return nil, fmt.Errorf("validate worktree: %w", err)
 	}
 	now := time.Now().UTC()
+	finalizersJSON := marshalFinalizers(obj.Finalizers)
 	_, err := c.db.ExecContext(ctx,
-		`INSERT INTO worktrees (path, repo, branch, commit_state, last_seen, resource_version, created_at)
+		`INSERT INTO worktrees (name, repo, branch, commit_state, finalizers, resource_version, created_at)
 		VALUES (?, ?, ?, ?, ?, 1, ?)`,
-		obj.Path, obj.Repo, obj.Branch, string(obj.CommitState),
-		obj.LastSeen.UTC().Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+		obj.Name, obj.Repo, obj.Branch, string(obj.CommitState),
+		finalizersJSON, now.Format(time.RFC3339Nano))
 	if err != nil {
-		return nil, fmt.Errorf("create worktree %s: %w", obj.Path, err)
+		return nil, fmt.Errorf("create worktree %s: %w", obj.Name, err)
 	}
-	created, err := c.Get(ctx, obj.Path)
+	created, err := c.Get(ctx, obj.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -68,53 +72,93 @@ func (c *worktreeClient) Update(ctx context.Context, obj *api.Worktree) (*api.Wo
 	if err := obj.Validate(); err != nil {
 		return nil, fmt.Errorf("validate worktree: %w", err)
 	}
+	finalizersJSON := marshalFinalizers(obj.Finalizers)
+	var deletionTS *string
+	if obj.DeletionTimestamp != nil {
+		s := obj.DeletionTimestamp.UTC().Format(time.RFC3339Nano)
+		deletionTS = &s
+	}
 	res, err := c.db.ExecContext(ctx,
-		`UPDATE worktrees SET repo = ?, branch = ?, commit_state = ?, last_seen = ?,
+		`UPDATE worktrees SET repo = ?, branch = ?, commit_state = ?,
+		deletion_timestamp = ?, finalizers = ?,
 		resource_version = resource_version + 1
-		WHERE path = ? AND resource_version = ?`,
+		WHERE name = ? AND resource_version = ?`,
 		obj.Repo, obj.Branch, string(obj.CommitState),
-		obj.LastSeen.UTC().Format(time.RFC3339Nano),
-		obj.Path, obj.ResourceVersion)
+		deletionTS, finalizersJSON,
+		obj.Name, obj.ResourceVersion)
 	if err != nil {
-		return nil, fmt.Errorf("update worktree %s: %w", obj.Path, err)
+		return nil, fmt.Errorf("update worktree %s: %w", obj.Name, err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		if _, err := c.Get(ctx, obj.Path); err != nil {
+		if _, err := c.Get(ctx, obj.Name); err != nil {
 			return nil, ErrNotFound
 		}
 		return nil, ErrConflict
 	}
-	updated, err := c.Get(ctx, obj.Path)
+	updated, err := c.Get(ctx, obj.Name)
 	if err != nil {
 		return nil, err
+	}
+	if updated.DeletionTimestamp != nil && len(updated.Finalizers) == 0 {
+		if _, err := c.db.ExecContext(ctx, "DELETE FROM worktrees WHERE name = ?", obj.Name); err != nil {
+			return nil, fmt.Errorf("garbage collect worktree %s: %w", obj.Name, err)
+		}
+		_ = c.broadcaster.Action(watch.Deleted, updated)
+		return updated, nil
 	}
 	_ = c.broadcaster.Action(watch.Modified, updated)
 	return updated, nil
 }
 
 func (c *worktreeClient) Delete(ctx context.Context, key string) error {
-	obj, err := c.Get(ctx, key)
-	if err != nil {
-		return err
+	for range 2 {
+		obj, err := c.Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		if obj.DeletionTimestamp != nil {
+			return nil
+		}
+		if len(obj.Finalizers) > 0 {
+			now := time.Now().UTC()
+			res, err := c.db.ExecContext(ctx,
+				`UPDATE worktrees SET deletion_timestamp = ?, resource_version = resource_version + 1
+				WHERE name = ? AND resource_version = ?`,
+				now.Format(time.RFC3339Nano), key, obj.ResourceVersion)
+			if err != nil {
+				return fmt.Errorf("soft delete worktree %s: %w", key, err)
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				continue
+			}
+			updated, err := c.Get(ctx, key)
+			if err != nil {
+				return err
+			}
+			_ = c.broadcaster.Action(watch.Modified, updated)
+			return nil
+		}
+		res, err := c.db.ExecContext(ctx, "DELETE FROM worktrees WHERE name = ?", key)
+		if err != nil {
+			return fmt.Errorf("delete worktree %s: %w", key, err)
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return ErrNotFound
+		}
+		_ = c.broadcaster.Action(watch.Deleted, obj)
+		return nil
 	}
-	res, err := c.db.ExecContext(ctx, "DELETE FROM worktrees WHERE path = ?", key)
-	if err != nil {
-		return fmt.Errorf("delete worktree %s: %w", key, err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
-	}
-	_ = c.broadcaster.Action(watch.Deleted, obj)
-	return nil
+	return ErrConflict
 }
 
 func scanWorktree(row *sql.Row) (*api.Worktree, error) {
 	var wt api.Worktree
-	var commitState, lastSeen, createdAt string
-	err := row.Scan(&wt.Path, &wt.Repo, &wt.Branch, &commitState,
-		&lastSeen, &wt.ResourceVersion, &createdAt)
+	var commitState, finalizersJSON, createdAt string
+	var deletionTS sql.NullString
+	err := row.Scan(&wt.Name, &wt.Repo, &wt.Branch, &commitState,
+		&deletionTS, &finalizersJSON, &wt.ResourceVersion, &createdAt)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -125,21 +169,18 @@ func scanWorktree(row *sql.Row) (*api.Worktree, error) {
 	if !wt.CommitState.Valid() {
 		return nil, fmt.Errorf("invalid worktree commit_state %q", commitState)
 	}
-	var parseErr error
-	if wt.LastSeen, parseErr = time.Parse(time.RFC3339Nano, lastSeen); parseErr != nil {
-		return nil, fmt.Errorf("parse worktree last_seen: %w", parseErr)
-	}
-	if wt.CreationTimestamp, parseErr = time.Parse(time.RFC3339Nano, createdAt); parseErr != nil {
-		return nil, fmt.Errorf("parse worktree created_at: %w", parseErr)
+	if err := parseScanFields(&wt.ObjectMeta, deletionTS, finalizersJSON, createdAt); err != nil {
+		return nil, fmt.Errorf("worktree %s: %w", wt.Name, err)
 	}
 	return &wt, nil
 }
 
 func scanWorktreeRow(rows *sql.Rows) (*api.Worktree, error) {
 	var wt api.Worktree
-	var commitState, lastSeen, createdAt string
-	err := rows.Scan(&wt.Path, &wt.Repo, &wt.Branch, &commitState,
-		&lastSeen, &wt.ResourceVersion, &createdAt)
+	var commitState, finalizersJSON, createdAt string
+	var deletionTS sql.NullString
+	err := rows.Scan(&wt.Name, &wt.Repo, &wt.Branch, &commitState,
+		&deletionTS, &finalizersJSON, &wt.ResourceVersion, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("scan worktree row: %w", err)
 	}
@@ -147,12 +188,34 @@ func scanWorktreeRow(rows *sql.Rows) (*api.Worktree, error) {
 	if !wt.CommitState.Valid() {
 		return nil, fmt.Errorf("invalid worktree commit_state %q", commitState)
 	}
-	var parseErr error
-	if wt.LastSeen, parseErr = time.Parse(time.RFC3339Nano, lastSeen); parseErr != nil {
-		return nil, fmt.Errorf("parse worktree last_seen: %w", parseErr)
-	}
-	if wt.CreationTimestamp, parseErr = time.Parse(time.RFC3339Nano, createdAt); parseErr != nil {
-		return nil, fmt.Errorf("parse worktree created_at: %w", parseErr)
+	if err := parseScanFields(&wt.ObjectMeta, deletionTS, finalizersJSON, createdAt); err != nil {
+		return nil, fmt.Errorf("worktree %s: %w", wt.Name, err)
 	}
 	return &wt, nil
+}
+
+func parseScanFields(meta *api.ObjectMeta, deletionTS sql.NullString, finalizersJSON, createdAt string) error {
+	var err error
+	if meta.CreationTimestamp, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
+		return fmt.Errorf("parse created_at: %w", err)
+	}
+	if deletionTS.Valid {
+		t, err := time.Parse(time.RFC3339Nano, deletionTS.String)
+		if err != nil {
+			return fmt.Errorf("parse deletion_timestamp: %w", err)
+		}
+		meta.DeletionTimestamp = &t
+	}
+	if err := json.Unmarshal([]byte(finalizersJSON), &meta.Finalizers); err != nil {
+		return fmt.Errorf("parse finalizers: %w", err)
+	}
+	return nil
+}
+
+func marshalFinalizers(finalizers []string) string {
+	if len(finalizers) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(finalizers)
+	return string(b)
 }

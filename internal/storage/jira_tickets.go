@@ -18,17 +18,17 @@ type jiraTicketClient struct {
 
 func (c *jiraTicketClient) Get(ctx context.Context, key string) (*api.JiraTicket, error) {
 	row := c.db.QueryRowContext(ctx,
-		`SELECT key, summary, description, status, issue_type, epic_key,
-		last_activity, last_seen, resource_version, created_at
-		FROM jira_tickets WHERE key = ?`, key)
+		`SELECT name, summary, description, status, issue_type, epic_key,
+		last_activity, deletion_timestamp, finalizers, resource_version, created_at
+		FROM jira_tickets WHERE name = ?`, key)
 	return scanJiraTicket(row)
 }
 
 func (c *jiraTicketClient) List(ctx context.Context) ([]*api.JiraTicket, error) {
 	rows, err := c.db.QueryContext(ctx,
-		`SELECT key, summary, description, status, issue_type, epic_key,
-		last_activity, last_seen, resource_version, created_at
-		FROM jira_tickets ORDER BY key`)
+		`SELECT name, summary, description, status, issue_type, epic_key,
+		last_activity, deletion_timestamp, finalizers, resource_version, created_at
+		FROM jira_tickets ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list jira tickets: %w", err)
 	}
@@ -50,17 +50,18 @@ func (c *jiraTicketClient) Create(ctx context.Context, obj *api.JiraTicket) (*ap
 		return nil, fmt.Errorf("validate jira ticket: %w", err)
 	}
 	now := time.Now().UTC()
+	finalizersJSON := marshalFinalizers(obj.Finalizers)
 	_, err := c.db.ExecContext(ctx,
-		`INSERT INTO jira_tickets (key, summary, description, status, issue_type,
-		epic_key, last_activity, last_seen, resource_version, created_at)
+		`INSERT INTO jira_tickets (name, summary, description, status, issue_type,
+		epic_key, last_activity, finalizers, resource_version, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-		obj.TicketKey, obj.Summary, obj.Description, string(obj.Status), string(obj.IssueType),
+		obj.Name, obj.Summary, obj.Description, string(obj.Status), string(obj.IssueType),
 		obj.EpicKey, obj.LastActivity.UTC().Format(time.RFC3339Nano),
-		obj.LastSeen.UTC().Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+		finalizersJSON, now.Format(time.RFC3339Nano))
 	if err != nil {
-		return nil, fmt.Errorf("create jira ticket %s: %w", obj.TicketKey, err)
+		return nil, fmt.Errorf("create jira ticket %s: %w", obj.Name, err)
 	}
-	created, err := c.Get(ctx, obj.TicketKey)
+	created, err := c.Get(ctx, obj.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -72,56 +73,96 @@ func (c *jiraTicketClient) Update(ctx context.Context, obj *api.JiraTicket) (*ap
 	if err := obj.Validate(); err != nil {
 		return nil, fmt.Errorf("validate jira ticket: %w", err)
 	}
+	finalizersJSON := marshalFinalizers(obj.Finalizers)
+	var deletionTS *string
+	if obj.DeletionTimestamp != nil {
+		s := obj.DeletionTimestamp.UTC().Format(time.RFC3339Nano)
+		deletionTS = &s
+	}
 	res, err := c.db.ExecContext(ctx,
 		`UPDATE jira_tickets SET summary = ?, description = ?, status = ?,
-		issue_type = ?, epic_key = ?, last_activity = ?, last_seen = ?,
+		issue_type = ?, epic_key = ?, last_activity = ?,
+		deletion_timestamp = ?, finalizers = ?,
 		resource_version = resource_version + 1
-		WHERE key = ? AND resource_version = ?`,
+		WHERE name = ? AND resource_version = ?`,
 		obj.Summary, obj.Description, string(obj.Status), string(obj.IssueType), obj.EpicKey,
 		obj.LastActivity.UTC().Format(time.RFC3339Nano),
-		obj.LastSeen.UTC().Format(time.RFC3339Nano),
-		obj.TicketKey, obj.ResourceVersion)
+		deletionTS, finalizersJSON,
+		obj.Name, obj.ResourceVersion)
 	if err != nil {
-		return nil, fmt.Errorf("update jira ticket %s: %w", obj.TicketKey, err)
+		return nil, fmt.Errorf("update jira ticket %s: %w", obj.Name, err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		if _, err := c.Get(ctx, obj.TicketKey); err != nil {
+		if _, err := c.Get(ctx, obj.Name); err != nil {
 			return nil, ErrNotFound
 		}
 		return nil, ErrConflict
 	}
-	updated, err := c.Get(ctx, obj.TicketKey)
+	updated, err := c.Get(ctx, obj.Name)
 	if err != nil {
 		return nil, err
+	}
+	if updated.DeletionTimestamp != nil && len(updated.Finalizers) == 0 {
+		if _, err := c.db.ExecContext(ctx, "DELETE FROM jira_tickets WHERE name = ?", obj.Name); err != nil {
+			return nil, fmt.Errorf("garbage collect jira ticket %s: %w", obj.Name, err)
+		}
+		_ = c.broadcaster.Action(watch.Deleted, updated)
+		return updated, nil
 	}
 	_ = c.broadcaster.Action(watch.Modified, updated)
 	return updated, nil
 }
 
 func (c *jiraTicketClient) Delete(ctx context.Context, key string) error {
-	obj, err := c.Get(ctx, key)
-	if err != nil {
-		return err
+	for range 2 {
+		obj, err := c.Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		if obj.DeletionTimestamp != nil {
+			return nil
+		}
+		if len(obj.Finalizers) > 0 {
+			now := time.Now().UTC()
+			res, err := c.db.ExecContext(ctx,
+				`UPDATE jira_tickets SET deletion_timestamp = ?, resource_version = resource_version + 1
+				WHERE name = ? AND resource_version = ?`,
+				now.Format(time.RFC3339Nano), key, obj.ResourceVersion)
+			if err != nil {
+				return fmt.Errorf("soft delete jira ticket %s: %w", key, err)
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				continue
+			}
+			updated, err := c.Get(ctx, key)
+			if err != nil {
+				return err
+			}
+			_ = c.broadcaster.Action(watch.Modified, updated)
+			return nil
+		}
+		res, err := c.db.ExecContext(ctx, "DELETE FROM jira_tickets WHERE name = ?", key)
+		if err != nil {
+			return fmt.Errorf("delete jira ticket %s: %w", key, err)
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return ErrNotFound
+		}
+		_ = c.broadcaster.Action(watch.Deleted, obj)
+		return nil
 	}
-	res, err := c.db.ExecContext(ctx, "DELETE FROM jira_tickets WHERE key = ?", key)
-	if err != nil {
-		return fmt.Errorf("delete jira ticket %s: %w", key, err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
-	}
-	_ = c.broadcaster.Action(watch.Deleted, obj)
-	return nil
+	return ErrConflict
 }
 
 func scanJiraTicket(row *sql.Row) (*api.JiraTicket, error) {
 	var jt api.JiraTicket
-	var status, issueType, lastActivity, lastSeen, createdAt string
-	err := row.Scan(&jt.TicketKey, &jt.Summary, &jt.Description, &status,
-		&issueType, &jt.EpicKey, &lastActivity, &lastSeen,
-		&jt.ResourceVersion, &createdAt)
+	var status, issueType, lastActivity, finalizersJSON, createdAt string
+	var deletionTS sql.NullString
+	err := row.Scan(&jt.Name, &jt.Summary, &jt.Description, &status,
+		&issueType, &jt.EpicKey, &lastActivity,
+		&deletionTS, &finalizersJSON, &jt.ResourceVersion, &createdAt)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -140,21 +181,19 @@ func scanJiraTicket(row *sql.Row) (*api.JiraTicket, error) {
 	if jt.LastActivity, parseErr = time.Parse(time.RFC3339Nano, lastActivity); parseErr != nil {
 		return nil, fmt.Errorf("parse jira ticket last_activity: %w", parseErr)
 	}
-	if jt.LastSeen, parseErr = time.Parse(time.RFC3339Nano, lastSeen); parseErr != nil {
-		return nil, fmt.Errorf("parse jira ticket last_seen: %w", parseErr)
-	}
-	if jt.CreationTimestamp, parseErr = time.Parse(time.RFC3339Nano, createdAt); parseErr != nil {
-		return nil, fmt.Errorf("parse jira ticket created_at: %w", parseErr)
+	if err := parseScanFields(&jt.ObjectMeta, deletionTS, finalizersJSON, createdAt); err != nil {
+		return nil, fmt.Errorf("jira ticket %s: %w", jt.Name, err)
 	}
 	return &jt, nil
 }
 
 func scanJiraTicketRow(rows *sql.Rows) (*api.JiraTicket, error) {
 	var jt api.JiraTicket
-	var status, issueType, lastActivity, lastSeen, createdAt string
-	err := rows.Scan(&jt.TicketKey, &jt.Summary, &jt.Description, &status,
-		&issueType, &jt.EpicKey, &lastActivity, &lastSeen,
-		&jt.ResourceVersion, &createdAt)
+	var status, issueType, lastActivity, finalizersJSON, createdAt string
+	var deletionTS sql.NullString
+	err := rows.Scan(&jt.Name, &jt.Summary, &jt.Description, &status,
+		&issueType, &jt.EpicKey, &lastActivity,
+		&deletionTS, &finalizersJSON, &jt.ResourceVersion, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("scan jira ticket row: %w", err)
 	}
@@ -170,11 +209,8 @@ func scanJiraTicketRow(rows *sql.Rows) (*api.JiraTicket, error) {
 	if jt.LastActivity, parseErr = time.Parse(time.RFC3339Nano, lastActivity); parseErr != nil {
 		return nil, fmt.Errorf("parse jira ticket last_activity: %w", parseErr)
 	}
-	if jt.LastSeen, parseErr = time.Parse(time.RFC3339Nano, lastSeen); parseErr != nil {
-		return nil, fmt.Errorf("parse jira ticket last_seen: %w", parseErr)
-	}
-	if jt.CreationTimestamp, parseErr = time.Parse(time.RFC3339Nano, createdAt); parseErr != nil {
-		return nil, fmt.Errorf("parse jira ticket created_at: %w", parseErr)
+	if err := parseScanFields(&jt.ObjectMeta, deletionTS, finalizersJSON, createdAt); err != nil {
+		return nil, fmt.Errorf("jira ticket %s: %w", jt.Name, err)
 	}
 	return &jt, nil
 }

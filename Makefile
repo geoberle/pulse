@@ -24,6 +24,14 @@ lint-fix:
 	go tool golangci-lint run --fix -v ./...
 .PHONY: lint-fix
 
+deepcopy:
+	hack/update-deepcopy.sh
+.PHONY: deepcopy
+
+verify-deepcopy: deepcopy
+	git diff --exit-code internal/api/zz_generated.deepcopy.go
+.PHONY: verify-deepcopy
+
 tidy:
 	go mod tidy
 .PHONY: tidy

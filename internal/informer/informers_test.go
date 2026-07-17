@@ -59,8 +59,9 @@ func TestPulseInformers_WorktreeAddUpdateDelete(t *testing.T) {
 	}
 
 	_, err := s.Worktrees().Create(ctx, &api.Worktree{
-		Path: "/tmp/test", Repo: "org/repo", Branch: "main",
-		LastSeen: time.Now(),
+		ObjectMeta: api.ObjectMeta{Name: "/tmp/test"},
+		Repo:       "org/repo",
+		Branch:     "main",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -115,11 +116,10 @@ func TestPulseInformers_WorktreeIndex(t *testing.T) {
 
 	_, wtLister := informers.Worktrees()
 
-	now := time.Now()
 	for _, wt := range []*api.Worktree{
-		{Path: "/tmp/a", Repo: "org/repo-a", Branch: "main", LastSeen: now},
-		{Path: "/tmp/b", Repo: "org/repo-b", Branch: "main", LastSeen: now},
-		{Path: "/tmp/c", Repo: "org/repo-a", Branch: "feature", LastSeen: now},
+		{ObjectMeta: api.ObjectMeta{Name: "/tmp/a"}, Repo: "org/repo-a", Branch: "main"},
+		{ObjectMeta: api.ObjectMeta{Name: "/tmp/b"}, Repo: "org/repo-b", Branch: "main"},
+		{ObjectMeta: api.ObjectMeta{Name: "/tmp/c"}, Repo: "org/repo-a", Branch: "feature"},
 	} {
 		if _, err := s.Worktrees().Create(ctx, wt); err != nil {
 			t.Fatal(err)
