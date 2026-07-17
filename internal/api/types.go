@@ -13,8 +13,8 @@ import (
 type ObjectMeta struct {
 	Name              string     `json:"name"`
 	ResourceVersion   int64      `json:"resourceVersion"`
-	CreationTimestamp  time.Time  `json:"creationTimestamp"`
-	DeletionTimestamp  *time.Time `json:"deletionTimestamp,omitempty"`
+	CreationTimestamp time.Time  `json:"creationTimestamp"`
+	DeletionTimestamp *time.Time `json:"deletionTimestamp,omitempty"`
 	Finalizers        []string   `json:"finalizers,omitempty"`
 }
 
@@ -43,7 +43,7 @@ func (w *Worktree) GetObjectMeta() metav1.Object {
 	om := &metav1.ObjectMeta{
 		Name:              w.Name,
 		ResourceVersion:   strconv.FormatInt(w.ResourceVersion, 10),
-		CreationTimestamp:  metav1.NewTime(w.CreationTimestamp),
+		CreationTimestamp: metav1.NewTime(w.CreationTimestamp),
 		Finalizers:        w.Finalizers,
 	}
 	if w.DeletionTimestamp != nil {
@@ -115,7 +115,7 @@ func (p *PullRequest) GetObjectMeta() metav1.Object {
 	om := &metav1.ObjectMeta{
 		Name:              p.Name,
 		ResourceVersion:   strconv.FormatInt(p.ResourceVersion, 10),
-		CreationTimestamp:  metav1.NewTime(p.CreationTimestamp),
+		CreationTimestamp: metav1.NewTime(p.CreationTimestamp),
 		Finalizers:        p.Finalizers,
 	}
 	if p.DeletionTimestamp != nil {
@@ -159,7 +159,7 @@ func (j *JiraTicket) GetObjectMeta() metav1.Object {
 	om := &metav1.ObjectMeta{
 		Name:              j.Name,
 		ResourceVersion:   strconv.FormatInt(j.ResourceVersion, 10),
-		CreationTimestamp:  metav1.NewTime(j.CreationTimestamp),
+		CreationTimestamp: metav1.NewTime(j.CreationTimestamp),
 		Finalizers:        j.Finalizers,
 	}
 	if j.DeletionTimestamp != nil {
@@ -208,7 +208,7 @@ func (m *ManualLink) GetObjectMeta() metav1.Object {
 	om := &metav1.ObjectMeta{
 		Name:              m.Name,
 		ResourceVersion:   strconv.FormatInt(m.ResourceVersion, 10),
-		CreationTimestamp:  metav1.NewTime(m.CreationTimestamp),
+		CreationTimestamp: metav1.NewTime(m.CreationTimestamp),
 		Finalizers:        m.Finalizers,
 	}
 	if m.DeletionTimestamp != nil {

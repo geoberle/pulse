@@ -27,9 +27,9 @@ func TestWorktreesCRUD(t *testing.T) {
 	c := s.Worktrees()
 
 	wt := &api.Worktree{
-		ObjectMeta: api.ObjectMeta{Name: "/home/user/dev/repo.branch"},
-		Repo:       "Azure/ARO-HCP",
-		Branch:     "feature",
+		ObjectMeta:  api.ObjectMeta{Name: "/home/user/dev/repo.branch"},
+		Repo:        "Azure/ARO-HCP",
+		Branch:      "feature",
 		CommitState: api.WorktreeCommitStateHasCommits,
 	}
 
@@ -112,15 +112,15 @@ func TestPullRequestsCRUD(t *testing.T) {
 	c := s.PullRequests()
 
 	pr := &api.PullRequest{
-		Repo:       "Azure/ARO-HCP",
-		Number:     42,
-		Branch:     "feature",
-		URL:        "https://github.com/Azure/ARO-HCP/pull/42",
-		Status:     api.PullRequestStatusOpen,
-		CIStatus:   api.CIStatusPassing,
-		ReviewStatus: api.ReviewStatusPending,
+		Repo:               "Azure/ARO-HCP",
+		Number:             42,
+		Branch:             "feature",
+		URL:                "https://github.com/Azure/ARO-HCP/pull/42",
+		Status:             api.PullRequestStatusOpen,
+		CIStatus:           api.CIStatusPassing,
+		ReviewStatus:       api.ReviewStatusPending,
 		UnresolvedComments: 2,
-		Author: "geoberle",
+		Author:             "geoberle",
 	}
 
 	// create
@@ -335,9 +335,9 @@ func TestCreateValidation(t *testing.T) {
 			name: "worktree invalid commit state",
 			fn: func() error {
 				_, err := s.Worktrees().Create(ctx, &api.Worktree{
-					ObjectMeta: api.ObjectMeta{Name: "/tmp/wt"},
-					Repo:       "org/repo",
-					Branch:     "main",
+					ObjectMeta:  api.ObjectMeta{Name: "/tmp/wt"},
+					Repo:        "org/repo",
+					Branch:      "main",
 					CommitState: "bogus",
 				})
 				return err
